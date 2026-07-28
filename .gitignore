@@ -14,3 +14,5 @@ config.json
 
 # MacOS
 .DS_Store
+
+*.dat
