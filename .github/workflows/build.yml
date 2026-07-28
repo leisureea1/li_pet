@@ -1,0 +1,71 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconsole --onefile pet.py
+
+      - name: Setup NSIS
+        uses: joncloud/makensis-action@v4
+
+      - name: Build Installer with NSIS
+        run: |
+          makensis /INPUTCHARSET UTF8 installer.nsi
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: LiTongtong-Windows-Setup
+          path: LiTongtong_Setup.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconsole --windowed pet.py
+
+      - name: Zip Mac App
+        run: |
+          cd dist
+          zip -r LiTongtong-Mac.zip pet.app
+
+      - name: Upload Mac App
+        uses: actions/upload-artifact@v3
+        with:
+          name: LiTongtong-Mac-App
+          path: dist/LiTongtong-Mac.zip
