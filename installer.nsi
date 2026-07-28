@@ -31,6 +31,10 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
+  ; Terminate the running pet process before deleting files
+  nsExec::Exec 'taskkill /F /IM "${APPEXE}"'
+  Sleep 1000
+
   Delete "$INSTDIR\pet.exe"
   Delete "$INSTDIR\character_fullbody.png"
   Delete "$INSTDIR\pat_hand_nobg.png"
