@@ -414,6 +414,14 @@ class DialogBubble(QWidget):
         
         bubble_x = pos.x() - self.width() // 2
         bubble_y = pos.y() - self.height() - 10
+        
+        # Prevent overflow
+        screen_rect = QApplication.desktop().availableGeometry(self)
+        if bubble_x < screen_rect.left(): bubble_x = screen_rect.left()
+        if bubble_x + self.width() > screen_rect.right(): bubble_x = screen_rect.right() - self.width()
+        if bubble_y < screen_rect.top(): bubble_y = screen_rect.top()
+        if bubble_y + self.height() > screen_rect.bottom(): bubble_y = screen_rect.bottom() - self.height()
+        
         self.move(bubble_x, bubble_y)
         self.show()
         if duration > 0:
