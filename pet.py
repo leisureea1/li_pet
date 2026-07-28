@@ -879,13 +879,18 @@ class Pet(QWidget):
 
     def check_music(self):
         try:
-            from pycaw.pycaw import AudioUtilities
+            from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
             sessions = AudioUtilities.GetAllSessions()
             playing = False
             for s in sessions:
-                if getattr(s, 'State', 0) == 1 and getattr(s, 'Process', None) and "pet" not in s.Process.name().lower():
-                    playing = True
-                    break
+                if getattr(s, 'Process', None) and "pet" not in s.Process.name().lower():
+                    try:
+                        meter = s._ctl.QueryInterface(IAudioMeterInformation)
+                        if meter.GetPeakValue() > 0.001:
+                            playing = True
+                            break
+                    except Exception:
+                        pass
             
             if playing:
                 import random
