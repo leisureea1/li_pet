@@ -418,7 +418,7 @@ class Pet(QWidget):
         menu.addAction(sleep_action)
         
         quit_action = QAction("退出", self)
-        quit_action.triggered.connect(qApp.quit)
+        quit_action.triggered.connect(QApplication.instance().quit)
         menu.addAction(quit_action)
         
         menu.exec_(self.mapToGlobal(event.pos()))

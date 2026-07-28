@@ -24,7 +24,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --noconsole --onefile --add-data "character_fullbody.png;." --add-data "pat_hand_nobg.png;." pet.py
+          pyinstaller --noconsole --onefile --hidden-import edge_tts --hidden-import pygame --add-data "character_fullbody.png;." --add-data "pat_hand_nobg.png;." pet.py
 
       - name: Install NSIS
         run: choco install nsis
@@ -57,7 +57,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --noconsole --windowed --add-data "character_fullbody.png:." --add-data "pat_hand_nobg.png:." pet.py
+          pyinstaller --noconsole --windowed --hidden-import edge_tts --hidden-import pygame --add-data "character_fullbody.png:." --add-data "pat_hand_nobg.png:." pet.py
 
       - name: Zip Mac App
         run: |
