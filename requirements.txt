@@ -1,3 +1,5 @@
 PyQt5
 requests
 pyinstaller
+edge-tts
+pygame

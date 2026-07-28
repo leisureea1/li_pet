@@ -4,6 +4,31 @@ import random
 import math
 import requests
 import json
+import asyncio
+import re
+
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
+def get_active_window_title():
+    if sys.platform == 'win32':
+        import ctypes
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+            return buf.value if buf.value else ""
+        except:
+            return ""
+    elif sys.platform == 'darwin':
+        import subprocess
+        script = 'tell application "System Events" to get name of first application process whose frontmost is true'
+        try:
+            res = subprocess.check_output(['osascript', '-e', script], stderr=subprocess.DEVNULL)
+            return res.decode('utf-8').strip()
+        except:
+            return ""
+    return ""
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
@@ -94,6 +119,31 @@ if not APP_CONFIG.get("api_key") and "sk-1ad1dacb6e1d4cde851ce2488abfe001" != ""
     APP_CONFIG["api_key"] = "sk-1ad1dacb6e1d4cde851ce2488abfe001"
     save_config(APP_CONFIG)
 
+class TTSThread(QThread):
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.text = text
+        
+    def run(self):
+        try:
+            import edge_tts
+            import pygame
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            out_file = os.path.join(temp_dir, "tongtong_voice.mp3")
+            
+            communicate = edge_tts.Communicate(self.text, "zh-CN-XiaoxiaoNeural")
+            asyncio.run(communicate.save(out_file))
+            
+            pygame.mixer.init()
+            pygame.mixer.music.load(out_file)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+            pygame.mixer.quit()
+        except Exception as e:
+            print("TTS error:", e)
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -143,8 +193,17 @@ class ChatThread(QThread):
         super().__init__(parent)
         self.message = ""
         self.is_idle = False
+        active_window = get_active_window_title()
+        context_str = f"\n(累累当前正在使用的软件窗口是：{active_window})" if active_window else ""
+        
+        system_prompt = (
+            "你叫李彤彤，是我的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱我。你称呼我为'累累'。"
+            "请展现出女朋友的撒娇、关心和俏皮。请用简短的语言回复（不超过30个字）。"
+            "如果你想设定一个倒计时提醒累累做某事（比如累累说'10分钟后提醒我喝水'），请在回复内容的最后，按照这种格式加上一行标记：[REMINDER:秒数:提醒内容]。"
+            f"例如：[REMINDER:600:该喝水啦！]{context_str}"
+        )
         self.history = [
-            {"role": "system", "content": "你叫李彤彤，是我的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱我。你称呼我为'累累'。请展现出女朋友的撒娇、关心和俏皮。请用简短的语言回复（不超过20个字）。"}
+            {"role": "system", "content": system_prompt}
         ]
 
     def run(self):
@@ -410,6 +469,7 @@ class Pet(QWidget):
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAcceptDrops(True)
         
         self.image_label = QLabel(self)
         self.pixmap = QPixmap(os.path.join(get_base_dir(), "character_fullbody.png"))
@@ -489,8 +549,45 @@ class Pet(QWidget):
             pass
 
     def on_chat_reply(self, text):
-        self.show_bubble(text, duration=5000)
-        self.reset_idle_timer()
+        match = re.search(r'\[REMINDER:(\d+):(.*?)\]', text)
+        if match:
+            try:
+                seconds = int(match.group(1))
+                msg = match.group(2)
+                text = text.replace(match.group(0), "").strip()
+                QTimer.singleShot(seconds * 1000, lambda: self.trigger_reminder(msg))
+            except:
+                pass
+                
+        if text:
+            self.show_bubble(text)
+            self.tts_thread = TTSThread(text, self)
+            self.tts_thread.start()
+
+    def trigger_reminder(self, msg):
+        self.show_bubble(msg)
+        self.tts_thread = TTSThread(msg, self)
+        self.tts_thread.start()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            file_path = urls[0].toLocalFile()
+            if os.path.isfile(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read(2000)
+                    prompt = f"累累刚才拖拽丢给我了一份文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。"
+                    self.chat_thread.send_message(prompt)
+                    self.show_bubble("正在看你给我的文件哦...")
+                except Exception:
+                    self.show_bubble("这个文件彤彤看不懂啦~")
 
     def trigger_idle_chat(self):
         if not self.is_sleeping:
