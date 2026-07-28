@@ -17,6 +17,12 @@ def get_resource_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 def get_data_dir():
+    if sys.platform == 'win32':
+        app_data = os.getenv('APPDATA')
+        if app_data:
+            path = os.path.join(app_data, "LiTongtongPet")
+            os.makedirs(path, exist_ok=True)
+            return path
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -362,23 +368,24 @@ class Pet(QWidget):
         self.reset_idle_timer()
 
     def initUI(self):
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAcceptDrops(True)
         
         self.image_label = QLabel(self)
         self.pixmap = QPixmap(os.path.join(get_resource_dir(), "character_fullbody.png"))
         if self.pixmap.isNull():
-            self.pixmap = QPixmap(150, 150)
+            self.pixmap = QPixmap(200, 200)
             self.pixmap.fill(QColor(255, 182, 193))
         
-        scaled_pixmap = self.pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled_pixmap = self.pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(scaled_pixmap)
+        self.image_label.resize(scaled_pixmap.size())
         
-        self.resize(150, 150)
+        self.resize(scaled_pixmap.size())
         
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - 200, screen.height() - 200)
+        self.move(screen.width() - 250, screen.height() - 250)
 
         self.bubble = Bubble()
         
