@@ -1,3 +1,5 @@
+import sqlite3
+from datetime import datetime
 import sys
 import os
 import random
@@ -301,6 +303,281 @@ class SettingsDialog(QDialog):
         QMessageBox.information(self, "成功", "设置已保存！彤彤记住了哦~")
         self.accept()
 
+class MemoryManager:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.init_db()
+
+    def init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_profile (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT,
+                    value TEXT,
+                    category TEXT,
+                    confidence REAL,
+                    source TEXT,
+                    active BOOLEAN,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT,
+                    item TEXT,
+                    value TEXT,
+                    weight REAL,
+                    active BOOLEAN,
+                    replaced_by INTEGER,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    time TEXT,
+                    event_type TEXT,
+                    summary TEXT,
+                    importance REAL,
+                    emotion TEXT,
+                    related TEXT,
+                    decay_rate REAL,
+                    last_used TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS working_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    role TEXT,
+                    content TEXT,
+                    timestamp TEXT
+                )
+            ''')
+            conn.commit()
+
+    def add_profile(self, key, value, category="basic", confidence=1.0, source="infer"):
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO user_profile (key, value, category, confidence, source, active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (key, value, category, confidence, source, True, now, now))
+            conn.commit()
+
+    def add_preference(self, p_type, item, value, weight=1.0):
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE preferences SET active = 0, updated_at = ? WHERE type = ? AND item = ? AND active = 1
+            ''', (now, p_type, item))
+            cursor.execute('''
+                INSERT INTO preferences (type, item, value, weight, active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (p_type, item, value, weight, True, now, now))
+            conn.commit()
+
+    def add_event(self, event_type, summary, importance, emotion="", related="", decay_rate=30.0):
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO events (time, event_type, summary, importance, emotion, related, decay_rate, last_used)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (now, event_type, summary, importance, emotion, related, decay_rate, now))
+            conn.commit()
+
+    def add_working_memory(self, role, content):
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO working_memory (role, content, timestamp) VALUES (?, ?, ?)', (role, content, now))
+            conn.commit()
+            
+            cursor.execute('SELECT count(*) FROM working_memory')
+            if cursor.fetchone()[0] > 100:
+                cursor.execute('DELETE FROM working_memory WHERE id NOT IN (SELECT id FROM working_memory ORDER BY timestamp DESC LIMIT 100)')
+                conn.commit()
+
+    def get_recent_working_memory(self, limit=20):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT role, content FROM working_memory ORDER BY timestamp DESC LIMIT ?', (limit,))
+            rows = cursor.fetchall()
+            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+
+    def retrieve_context(self):
+        context_parts = []
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT key, value FROM user_profile WHERE active = 1 ORDER BY confidence DESC LIMIT 10')
+            profiles = cursor.fetchall()
+            if profiles:
+                context_parts.append("【用户画像】\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in profiles]))
+                
+            cursor.execute('SELECT item, value FROM preferences WHERE active = 1 ORDER BY weight DESC LIMIT 10')
+            prefs = cursor.fetchall()
+            if prefs:
+                context_parts.append("【用户偏好】\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in prefs]))
+                
+            cursor.execute('SELECT id, time, summary, importance, decay_rate FROM events')
+            events = cursor.fetchall()
+            now = datetime.now()
+            scored_events = []
+            for ev in events:
+                try:
+                    ev_time = datetime.fromisoformat(ev[1])
+                    days_diff = (now - ev_time).days
+                    decay = ev[4] if ev[4] else 30.0
+                    score = ev[3] * math.exp(-days_diff / decay)
+                    scored_events.append((score, ev[2]))
+                except:
+                    pass
+            scored_events.sort(key=lambda x: x[0], reverse=True)
+            top_events = scored_events[:5]
+            if top_events:
+                context_parts.append("【近期事件/状态】\n" + "\n".join([f"- {r[1]}" for r in top_events]))
+                
+        return "\n\n".join(context_parts)
+
+class MemoryExtractorThread(QThread):
+    def __init__(self, user_msg, ai_reply, memory_manager, parent=None):
+        super().__init__(parent)
+        self.user_msg = user_msg
+        self.ai_reply = ai_reply
+        self.memory_manager = memory_manager
+        
+    def run(self):
+        api_key = APP_CONFIG.get("api_key", "")
+        if not api_key: return
+            
+        system_prompt = (
+            "你是一个记忆管理器。你的任务是判断下面对话是否产生值得长期保存的信息。\n"
+            "规则：\n"
+            "1. 不记录一次性行为（如“今天吃火锅”）\n"
+            "2. 不记录临时情绪，除非影响长期关系\n"
+            "3. 不推测用户信息，用户明确表达优先级最高\n"
+            "输出 JSON 数组格式，包含 type (profile/preference/event) 和 data，不要输出其他废话。\n"
+            "例如: [{\"type\":\"event\", \"data\":{\"event_type\":\"project\", \"summary\":\"用户正在开发AI桌宠\", \"importance\":0.8}}]"
+        )
+        
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"用户: {self.user_msg}\nAI: {self.ai_reply}"}
+            ]
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            content = data['choices'][0]['message']['content'].strip()
+            
+            match = re.search(r'\[.*\]', content, re.DOTALL)
+            if match:
+                memories = json.loads(match.group(0))
+                for mem in memories:
+                    m_type = mem.get("type")
+                    m_data = mem.get("data", {})
+                    if m_type == "profile":
+                        self.memory_manager.add_profile(
+                            m_data.get("key", ""), m_data.get("value", ""),
+                            m_data.get("category", "basic"), m_data.get("confidence", 0.8), "infer"
+                        )
+                    elif m_type == "preference":
+                        self.memory_manager.add_preference(
+                            m_data.get("type", "general"), m_data.get("item", ""),
+                            m_data.get("value", ""), m_data.get("weight", 0.8)
+                        )
+                    elif m_type == "event":
+                        importance = min(m_data.get("importance", 0.5), 0.8)
+                        ev_type = m_data.get("event_type", "general")
+                        if ev_type in ["chat", "daily"]: importance = min(importance, 0.3)
+                        self.memory_manager.add_event(
+                            ev_type, m_data.get("summary", ""),
+                            importance, m_data.get("emotion", "")
+                        )
+        except Exception as e:
+            print("Memory Extractor Error:", e)
+
+def get_title_from_pid(target_pid):
+    if sys.platform != 'win32':
+        return ""
+    try:
+        import ctypes
+        titles = []
+        def callback(hwnd, hwnds):
+            pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == target_pid:
+                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buff = ctypes.create_unicode_buffer(length + 1)
+                    ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+                    titles.append(buff.value)
+            return True
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+        ctypes.windll.user32.EnumWindows(EnumWindowsProc(callback), 0)
+        
+        valid_titles = [t for t in titles if t not in ["Default IME", "MSCTFIME UI", "网易云音乐"] and len(t) > 2]
+        if valid_titles:
+            for t in valid_titles:
+                if " - " in t:
+                    return t
+            return valid_titles[0]
+    except Exception:
+        pass
+    return ""
+
+def get_current_music_info_sync():
+    if sys.platform != 'win32':
+        return ""
+    try:
+        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager
+        async def fetch():
+            manager = await GlobalSystemMediaTransportControlsSessionManager.request_async()
+            sessions = manager.get_sessions()
+            for s in sessions:
+                try:
+                    playback_info = s.get_playback_info()
+                    if playback_info:
+                        status = playback_info.playback_status
+                        status_val = status.value if hasattr(status, 'value') else status
+                        if status_val == 4:
+                            info = await s.try_get_media_properties_async()
+                            title = info.title if info.title else "未知"
+                            artist = info.artist if info.artist else "未知"
+                            return f"{artist} - {title}"
+                except Exception:
+                    continue
+                    
+            # Fallback to current session
+            session = manager.get_current_session()
+            if session:
+                info = await session.try_get_media_properties_async()
+                title = info.title if info.title else "未知"
+                artist = info.artist if info.artist else "未知"
+                return f"{artist} - {title}"
+            return ""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(fetch())
+    except Exception as e:
+        print("Music fetch error:", e)
+        return ""
+
 class ChatThread(QThread):
     reply_ready = pyqtSignal(str)
 
@@ -308,16 +585,16 @@ class ChatThread(QThread):
         super().__init__(parent)
         self.message = ""
         self.is_idle = False
-        
-        self.history = load_encrypted_json("history.dat", [])
-        if not self.history:
-            self.history = [{"role": "system", "content": self.get_system_prompt()}]
-        else:
-            self.history[0] = {"role": "system", "content": self.get_system_prompt()}
+        self.memory_manager = MemoryManager(os.path.join(get_data_dir(), "memory.db"))
+        self.extractor_thread = None
 
     def get_system_prompt(self):
         active_window = get_active_window_title()
         context_str = f"\n(累累当前正在使用的软件窗口是：{active_window})" if active_window else ""
+        
+        music_info = get_current_music_info_sync()
+        if music_info:
+            context_str += f"\n(累累当前正在听的歌曲是：{music_info})"
         try:
             cpu = psutil.cpu_percent(interval=None)
             mem = psutil.virtual_memory().percent
@@ -327,15 +604,19 @@ class ChatThread(QThread):
         except:
             sys_str = ""
             
+        memory_context = self.memory_manager.retrieve_context()
+        if memory_context:
+            memory_context = f"\n\n这里是关于累累的长期记忆和当前状态：\n{memory_context}"
+            
         return (
             "你叫李彤彤，是我的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱我。你称呼我为'累累'。"
             "请展现出女朋友的撒娇、关心和俏皮。请用简短的语言回复（不超过30个字）。"
             "如果你想设定一个倒计时提醒累累做某事，请在回复内容的最后，按照这种格式加上一行标记：[REMINDER:秒数:提醒内容]。"
-            f"例如：[REMINDER:600:该喝水啦！]{context_str}\n{sys_str}"
+            f"例如：[REMINDER:600:该喝水啦！]{context_str}\n{sys_str}{memory_context}"
         )
 
     def run(self):
-        self.history[0] = {"role": "system", "content": self.get_system_prompt()}
+        system_msg = {"role": "system", "content": self.get_system_prompt()}
         
         url = "https://api.deepseek.com/chat/completions"
         api_key = APP_CONFIG.get("api_key", "")
@@ -348,12 +629,16 @@ class ChatThread(QThread):
             "Authorization": f"Bearer {api_key}"
         }
         
-        current_messages = list(self.history)
+        history = self.memory_manager.get_recent_working_memory()
+        current_messages = [system_msg] + history
+        
         if self.is_idle:
             current_messages.append({"role": "user", "content": "（累累很久没理你了，你现在在想什么？主动跟他说一句话吧，要符合你的角色设定，不超过15个字）"})
+        elif hasattr(self, 'prompt'):
+            current_messages.append({"role": "user", "content": self.prompt})
         else:
             if self.message:
-                self.history.append({"role": "user", "content": self.message})
+                self.memory_manager.add_working_memory("user", self.message)
                 current_messages.append({"role": "user", "content": self.message})
 
         payload = {
@@ -368,10 +653,11 @@ class ChatThread(QThread):
             reply_text = data['choices'][0]['message']['content'].strip()
             
             if not self.is_idle:
-                self.history.append({"role": "assistant", "content": reply_text})
-                if len(self.history) > 21:
-                    self.history = [self.history[0]] + self.history[-20:]
-                save_encrypted_json("history.dat", self.history)
+                self.memory_manager.add_working_memory("assistant", reply_text)
+                if self.message:
+                    # Launch Memory Extractor
+                    self.extractor_thread = MemoryExtractorThread(self.message, reply_text, self.memory_manager, None)
+                    self.extractor_thread.start()
             
             self.reply_ready.emit(reply_text)
         except Exception as e:
@@ -880,16 +1166,20 @@ class Pet(QWidget):
         action = menu.exec_(self.mapToGlobal(event.pos()))
 
     def check_music(self):
+        if sys.platform != 'win32':
+            return
         try:
             from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
             sessions = AudioUtilities.GetAllSessions()
             playing = False
+            playing_pid = None
             for s in sessions:
                 if getattr(s, 'Process', None) and "pet" not in s.Process.name().lower():
                     try:
                         meter = s._ctl.QueryInterface(IAudioMeterInformation)
                         if meter.GetPeakValue() > 0.001:
                             playing = True
+                            playing_pid = s.Process.pid
                             break
                     except Exception:
                         pass
@@ -902,8 +1192,32 @@ class Pet(QWidget):
                 start_pos = QPoint(start_x, start_y)
                 end_pos = QPoint(start_x + random.randint(-30, 30), start_y - random.randint(30, 60))
                 Particle(self, note, "#ff69b4", start_pos, end_pos, duration=2000)
-        except Exception:
-            pass
+                
+            current_music = get_current_music_info_sync()
+            if not current_music and playing_pid:
+                current_music = get_title_from_pid(playing_pid)
+            
+            import time
+            if not hasattr(self, 'last_music_info'):
+                self.last_music_info = current_music
+                self.last_music_proactive_time = 0
+                
+            print(f"[DEBUG] playing={playing}, current_music='{current_music}', last_music_info='{self.last_music_info}'")
+                
+            if playing and current_music and current_music != self.last_music_info:
+                if time.time() - self.last_music_proactive_time > 15:
+                    self.last_music_proactive_time = time.time()
+                    self.last_music_info = current_music
+                    print("[DEBUG] Triggering chat thread!")
+                    prompt = f"（系统后台提示：累累切歌了，当前正在听 {current_music}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
+                    self.chat_thread = ChatThread(self)
+                    self.chat_thread.prompt = prompt
+                    self.chat_thread.reply_ready.connect(self.on_chat_reply)
+                    self.chat_thread.start()
+                else:
+                    self.last_music_info = current_music
+        except Exception as e:
+            print(f"[DEBUG] Exception in check_music: {e}")
 
     def proactive_observe(self):
         active_window = get_active_window_title()
