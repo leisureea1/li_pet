@@ -76,7 +76,7 @@ def get_active_window_title():
             return ""
     return ""
 
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
 
@@ -91,7 +91,7 @@ def load_config():
             return config
         except:
             pass
-    return load_encrypted_json("config.dat", {"api_key": "", "autostart": False, "enable_voice": True})
+    return load_encrypted_json("config.dat", {"api_key": "", "autostart": False, "enable_voice": True, "tts_voice": "zh-CN-XiaoxiaoNeural"})
 
 def save_config(config):
     save_encrypted_json("config.dat", config)
@@ -161,9 +161,10 @@ if not APP_CONFIG.get("api_key"):
 
 class TTSThread(QThread):
     ready_signal = pyqtSignal(str)
-    def __init__(self, text, parent=None):
+    def __init__(self, text, voice="zh-CN-XiaoxiaoNeural", parent=None):
         super().__init__(parent)
         self.text = text
+        self.voice = voice
         
     def run(self):
         try:
@@ -174,7 +175,7 @@ class TTSThread(QThread):
             temp_dir = tempfile.gettempdir()
             out_file = os.path.join(temp_dir, f"tongtong_voice_{uuid.uuid4().hex}.mp3")
             
-            communicate = edge_tts.Communicate(self.text, "zh-CN-XiaoxiaoNeural")
+            communicate = edge_tts.Communicate(self.text, self.voice)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(communicate.save(out_file))
@@ -223,7 +224,35 @@ class SettingsDialog(QDialog):
         
         self.voice_checkbox = QCheckBox("允许彤彤说话")
         self.voice_checkbox.setChecked(APP_CONFIG.get("enable_voice", True))
-        form_layout.addRow(QLabel("声音:"), self.voice_checkbox)
+        form_layout.addRow(QLabel("声音开关:"), self.voice_checkbox)
+        
+        self.voice_combo = QComboBox()
+        self.voice_combo.setStyleSheet("QComboBox { border: 2px solid #ffb6c1; border-radius: 5px; padding: 3px; background-color: white; color: #333; }")
+        self.voices = {
+            "晓晓 (温暖亲切)": "zh-CN-XiaoxiaoNeural",
+            "晓伊 (活泼可爱)": "zh-CN-XiaoyiNeural",
+            "晓北 (东北幽默)": "zh-CN-liaoning-XiaobeiNeural",
+            "晓妮 (陕西明快)": "zh-CN-shaanxi-XiaoniNeural",
+            "晓臻 (台湾轻柔)": "zh-TW-HsiaoChenNeural"
+        }
+        for name in self.voices.keys():
+            self.voice_combo.addItem(name)
+            
+        current_voice = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
+        for i, (name, v_id) in enumerate(self.voices.items()):
+            if v_id == current_voice:
+                self.voice_combo.setCurrentIndex(i)
+                break
+                
+        preview_btn = QPushButton("▶️ 试听")
+        preview_btn.setFixedSize(60, 26)
+        preview_btn.setStyleSheet("QPushButton { background-color: #ff91a4; color: white; border-radius: 5px; font-weight: bold; font-size: 11px; } QPushButton:hover { background-color: #ff69b4; }")
+        preview_btn.clicked.connect(self.preview_voice)
+        
+        voice_layout = QHBoxLayout()
+        voice_layout.addWidget(self.voice_combo)
+        voice_layout.addWidget(preview_btn)
+        form_layout.addRow(QLabel("选择音色:"), voice_layout)
         
         save_btn = QPushButton("保存设置")
         save_btn.clicked.connect(self.save_settings)
@@ -232,6 +261,22 @@ class SettingsDialog(QDialog):
         layout.addLayout(form_layout)
         layout.addWidget(save_btn, alignment=Qt.AlignCenter)
         self.old_pos = None
+
+    def preview_voice(self):
+        voice_name = self.voice_combo.currentText()
+        voice_id = self.voices[voice_name]
+        self.preview_thread = TTSThread("你好呀，累累！我是彤彤，以后就用这个声音陪着你啦！", voice=voice_id)
+        self.preview_thread.ready_signal.connect(self.play_preview)
+        self.preview_thread.start()
+
+    def play_preview(self, audio_file):
+        try:
+            import pygame
+            pygame.mixer.init()
+            pygame.mixer.music.load(audio_file)
+            pygame.mixer.music.play()
+        except Exception as e:
+            QMessageBox.warning(self, "播放失败", f"无法播放试听音频: {e}")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -250,6 +295,7 @@ class SettingsDialog(QDialog):
         APP_CONFIG["api_key"] = self.api_key_input.text().strip()
         APP_CONFIG["autostart"] = self.autostart_checkbox.isChecked()
         APP_CONFIG["enable_voice"] = self.voice_checkbox.isChecked()
+        APP_CONFIG["tts_voice"] = self.voices.get(self.voice_combo.currentText(), "zh-CN-XiaoxiaoNeural")
         save_config(APP_CONFIG)
         set_autostart(APP_CONFIG["autostart"])
         QMessageBox.information(self, "成功", "设置已保存！彤彤记住了哦~")
@@ -370,7 +416,10 @@ class DialogBubble(QWidget):
         bubble_y = pos.y() - self.height() - 10
         self.move(bubble_x, bubble_y)
         self.show()
-        self.timer.start(duration)
+        if duration > 0:
+            self.timer.start(duration)
+        else:
+            self.timer.stop()
 
 class InputDialogBubble(QWidget):
     text_entered = pyqtSignal(str)
@@ -643,29 +692,52 @@ class Pet(QWidget):
                 
         if text:
             if APP_CONFIG.get("enable_voice", True):
-                self.tts_thread = TTSThread(text, self)
+                voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
+                self.tts_thread = TTSThread(text, voice=voice_id, parent=self)
                 self.tts_thread.ready_signal.connect(lambda audio_file, txt=text: self.play_tts_and_show_bubble(txt, audio_file))
                 self.tts_thread.start()
             else:
-                self.show_bubble(text)
+                duration = max(3000, len(text) * 200) # dynamic duration based on length
+                self.show_bubble(text, duration)
 
     def play_tts_and_show_bubble(self, text, audio_file):
-        self.show_bubble(text)
+        self.show_bubble(text, duration=0) # Keeps open until audio finishes
         try:
             import pygame
             pygame.mixer.init()
             pygame.mixer.music.load(audio_file)
             pygame.mixer.music.play()
+            
+            # Start timer to check when music stops
+            if not hasattr(self, 'audio_check_timer'):
+                self.audio_check_timer = QTimer(self)
+                self.audio_check_timer.timeout.connect(self.check_audio_status)
+            self.audio_check_timer.start(100)
         except:
-            pass
+            # Fallback if audio fails
+            duration = max(3000, len(text) * 200)
+            self.show_bubble(text, duration)
+
+    def check_audio_status(self):
+        try:
+            import pygame
+            if not pygame.mixer.music.get_busy():
+                self.audio_check_timer.stop()
+                self.dialog_bubble.hide()
+        except:
+            if hasattr(self, 'audio_check_timer'):
+                self.audio_check_timer.stop()
+            self.dialog_bubble.hide()
 
     def trigger_reminder(self, msg):
         if APP_CONFIG.get("enable_voice", True):
-            self.tts_thread = TTSThread(msg, self)
+            voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
+            self.tts_thread = TTSThread(msg, voice=voice_id, parent=self)
             self.tts_thread.ready_signal.connect(lambda audio_file, txt=msg: self.play_tts_and_show_bubble(txt, audio_file))
             self.tts_thread.start()
         else:
-            self.show_bubble(msg)
+            duration = max(3000, len(msg) * 200)
+            self.show_bubble(msg, duration)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
