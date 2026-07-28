@@ -611,11 +611,13 @@ class Pet(QWidget):
         self.idle_timer.timeout.connect(self.trigger_idle_chat)
         self.idle_timer.start(30000)
 
-        # Proactive observation timer (60 seconds)
+        # Proactive observation timer (5 seconds)
         self.observe_timer = QTimer(self)
         self.observe_timer.timeout.connect(self.proactive_observe)
-        self.observe_timer.start(60000)
+        self.observe_timer.start(5000)
         self.last_active_window = get_active_window_title()
+        import time
+        self.last_proactive_time = time.time()
         
         # Music detection timer (2 seconds)
         self.music_timer = QTimer(self)
@@ -909,8 +911,9 @@ class Pet(QWidget):
         
         if active_window != self.last_active_window:
             self.last_active_window = active_window
-            import random
-            if random.random() < 0.3:
+            import time
+            if time.time() - self.last_proactive_time > 60:
+                self.last_proactive_time = time.time()
                 prompt = f"（系统后台提示：累累当前主动打开了新软件 '{active_window}'。请你主动发一两句话关心他或撒娇吐槽，不要太长，假装是你自己不经意看到的，不要提系统后台。）"
                 self.chat_thread = ChatThread(self)
                 self.chat_thread.prompt = prompt
