@@ -402,6 +402,8 @@ class DialogBubble(QWidget):
         """)
         self.label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         self.label.setAlignment(Qt.AlignCenter)
+        self.label.setWordWrap(True)
+        self.label.setMaximumWidth(400)
         
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.hide)
@@ -608,6 +610,17 @@ class Pet(QWidget):
         self.idle_timer = QTimer(self)
         self.idle_timer.timeout.connect(self.trigger_idle_chat)
         self.idle_timer.start(30000)
+
+        # Proactive observation timer (60 seconds)
+        self.observe_timer = QTimer(self)
+        self.observe_timer.timeout.connect(self.proactive_observe)
+        self.observe_timer.start(60000)
+        self.last_active_window = get_active_window_title()
+        
+        # Music detection timer (2 seconds)
+        self.music_timer = QTimer(self)
+        self.music_timer.timeout.connect(self.check_music)
+        self.music_timer.start(2000)
 
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
@@ -854,6 +867,51 @@ class Pet(QWidget):
             end_y = start_y - random.randint(50, 80)
             Particle(self, "Z", "#87ceeb", QPoint(start_x, start_y), QPoint(end_x, end_y), duration=2000)
 
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        
+        settings_action = menu.addAction("设置...")
+        chat_action = menu.addAction("陪我聊聊天")
+        hide_action = menu.addAction("暂时隐藏")
+        quit_action = menu.addAction("退出")
+        
+        action = menu.exec_(self.mapToGlobal(event.pos()))
+
+    def check_music(self):
+        try:
+            from pycaw.pycaw import AudioUtilities
+            sessions = AudioUtilities.GetAllSessions()
+            playing = False
+            for s in sessions:
+                if getattr(s, 'State', 0) == 1 and getattr(s, 'Process', None) and "pet" not in s.Process.name().lower():
+                    playing = True
+                    break
+            
+            if playing:
+                import random
+                note = random.choice(["🎵", "🎶", "🎸"])
+                start_x = self.width() // 2 + random.randint(-20, 20)
+                start_y = 20
+                start_pos = QPoint(start_x, start_y)
+                end_pos = QPoint(start_x + random.randint(-30, 30), start_y - random.randint(30, 60))
+                Particle(self, note, "#ff69b4", start_pos, end_pos, duration=2000)
+        except Exception:
+            pass
+
+    def proactive_observe(self):
+        active_window = get_active_window_title()
+        if not active_window: return
+        
+        if active_window != self.last_active_window:
+            self.last_active_window = active_window
+            import random
+            if random.random() < 0.3:
+                prompt = f"（系统后台提示：累累当前主动打开了新软件 '{active_window}'。请你主动发一两句话关心他或撒娇吐槽，不要太长，假装是你自己不经意看到的，不要提系统后台。）"
+                self.chat_thread = ChatThread(self)
+                self.chat_thread.prompt = prompt
+                self.chat_thread.reply_ready.connect(self.on_chat_reply)
+                self.chat_thread.start()
+        
     def show_context_menu(self, pos):
         menu = QMenu(self)
         
