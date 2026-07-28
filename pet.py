@@ -169,11 +169,17 @@ class TTSThread(QThread):
         try:
             import edge_tts
             import tempfile
+            import uuid
+            import asyncio
             temp_dir = tempfile.gettempdir()
-            out_file = os.path.join(temp_dir, "tongtong_voice.mp3")
+            out_file = os.path.join(temp_dir, f"tongtong_voice_{uuid.uuid4().hex}.mp3")
             
             communicate = edge_tts.Communicate(self.text, "zh-CN-XiaoxiaoNeural")
-            asyncio.run(communicate.save(out_file))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(communicate.save(out_file))
+            loop.close()
+            
             self.ready_signal.emit(out_file)
         except Exception as e:
             print("TTS error:", e)
