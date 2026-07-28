@@ -3,3 +3,5 @@ requests
 pyinstaller
 edge-tts
 pygame
+psutil
+cython
