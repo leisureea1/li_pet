@@ -16,10 +16,6 @@ Section "Install"
   ; Include the executable
   File "dist\pet.exe"
   
-  ; Include the images
-  File "character_fullbody.png"
-  File "pat_hand_nobg.png"
-  
   ; Create shortcut on desktop
   CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${APPEXE}"
   
@@ -36,8 +32,6 @@ Section "Uninstall"
   Sleep 1000
 
   Delete "$INSTDIR\pet.exe"
-  Delete "$INSTDIR\character_fullbody.png"
-  Delete "$INSTDIR\pat_hand_nobg.png"
   Delete "$INSTDIR\config.json"
   Delete "$INSTDIR\uninstall.exe"
   
