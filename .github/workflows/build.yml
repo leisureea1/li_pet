@@ -53,7 +53,7 @@ jobs:
           name: windows-installer
           path: LiTongtong_Setup.exe
 
-  build-macos:
+  build-macos-apple:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,10 +67,9 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Build Universal 2 executable
+      - name: Build executable
         run: |
           pyinstaller --noconsole --onefile \
-            --target-arch universal2 \
             --hidden-import edge_tts \
             --hidden-import pygame \
             --hidden-import pkg_resources.py2_warn \
@@ -83,16 +82,53 @@ jobs:
           mkdir -p dmg_temp
           cp dist/pet dmg_temp/
           ln -s /Applications dmg_temp/Applications
-          hdiutil create -volname "LiTongtongPet" -srcfolder dmg_temp -ov -format UDZO LiTongtong.dmg
+          hdiutil create -volname "LiTongtongPet" -srcfolder dmg_temp -ov -format UDZO LiTongtong-Apple.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-installer
-          path: LiTongtong.dmg
+          name: macos-apple-installer
+          path: LiTongtong-Apple.dmg
+
+  build-macos-intel:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller --noconsole --onefile \
+            --hidden-import edge_tts \
+            --hidden-import pygame \
+            --hidden-import pkg_resources.py2_warn \
+            --add-data "character_fullbody.png:." \
+            --add-data "pat_hand_nobg.png:." \
+            pet.py
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_temp
+          cp dist/pet dmg_temp/
+          ln -s /Applications dmg_temp/Applications
+          hdiutil create -volname "LiTongtongPet" -srcfolder dmg_temp -ov -format UDZO LiTongtong-Intel.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-installer
+          path: LiTongtong-Intel.dmg
 
   release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos-apple, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,10 +139,16 @@ jobs:
           name: windows-installer
           path: artifacts
 
-      - name: Download macOS artifact
+      - name: Download macOS Apple artifact
         uses: actions/download-artifact@v4
         with:
-          name: macos-installer
+          name: macos-apple-installer
+          path: artifacts
+
+      - name: Download macOS Intel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-intel-installer
           path: artifacts
 
       - name: Create Release
@@ -118,4 +160,5 @@ jobs:
           prerelease: false
           files: |
             artifacts/LiTongtong_Setup.exe
-            artifacts/LiTongtong.dmg
+            artifacts/LiTongtong-Apple.dmg
+            artifacts/LiTongtong-Intel.dmg
