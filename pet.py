@@ -375,6 +375,9 @@ class Pet(QWidget):
 
         msg = QMessageBox(self)
         msg.setWindowTitle("发现新版本")
+        msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        
         if download_url:
             msg.setText(f"发现新版本 {version}，是否立即更新？")
             msg.button(QMessageBox.Yes).setText("立即更新")
@@ -382,8 +385,6 @@ class Pet(QWidget):
             msg.setText(f"发现新版本 {version}，是否前往下载更新？")
             msg.button(QMessageBox.Yes).setText("前往下载")
             
-        msg.setIcon(QMessageBox.Information)
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.button(QMessageBox.No).setText("暂不更新")
         msg.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
         
