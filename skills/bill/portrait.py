@@ -71,5 +71,32 @@ def build_portrait(df, router=None):
             "transaction_count": len(df_game),
             "favorite_games": df_game['counterparty'].value_counts().head(2).index.tolist()
         }
+        
+    # 6. Weekend vs Weekday
+    df_expense.loc[:, 'is_weekend'] = df_expense['time'].dt.dayofweek >= 5
+    weekend_spent = df_expense[df_expense['is_weekend']]['amount'].sum()
+    weekday_spent = df_expense[~df_expense['is_weekend']]['amount'].sum()
+    
+    # Calculate daily average (assuming 2 weekend days and 5 weekdays per week)
+    weekend_daily_avg = weekend_spent / 2.0 if weekend_spent > 0 else 0
+    weekday_daily_avg = weekday_spent / 5.0 if weekday_spent > 0 else 0
+    
+    portrait['weekly_pattern'] = {
+        "weekend_total": float(weekend_spent),
+        "weekday_total": float(weekday_spent),
+        "personality": "周末狂欢型" if weekend_daily_avg > weekday_daily_avg * 1.5 else ("工作日打工人" if weekday_daily_avg > weekend_daily_avg else "平稳消费型")
+    }
+    
+    # 7. Food & Drink Habits (Coffee, Milk Tea, Fast Food)
+    drink_keywords = ["奶茶", "茶百道", "蜜雪冰城", "喜茶", "霸王茶姬", "瑞幸", "咖啡", "星巴克", "库迪"]
+    df_drinks = df_expense[df_expense['counterparty'].str.lower().str.contains('|'.join(drink_keywords), na=False) | df_expense['product'].str.lower().str.contains('|'.join(drink_keywords), na=False)]
+    
+    if not df_drinks.empty:
+        portrait['drink_habits'] = {
+            "total_spent": float(df_drinks['amount'].sum()),
+            "cups_estimated": len(df_drinks),
+            "favorite_brands": df_drinks['counterparty'].value_counts().head(2).index.tolist(),
+            "comment": "奶茶/咖啡续命星人" if len(df_drinks) > 5 else "偶尔解馋"
+        }
     
     return portrait
