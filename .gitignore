@@ -1,18 +1,19 @@
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# PyInstaller
+*.so
+.Python
 build/
 dist/
 *.spec
-*.exe
-
-# Configuration
-config.json
-
-# MacOS
-.DS_Store
-
+installer.nsi
+LiTongtong_Setup.exe
+*.dmg
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+*.db
 *.dat
+generated-images/

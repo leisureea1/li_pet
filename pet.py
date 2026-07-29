@@ -589,30 +589,58 @@ class ChatThread(QThread):
         self.extractor_thread = None
 
     def get_system_prompt(self):
+        # ===== 背景信息（仅供理解语境，不主动展开）=====
+        background_lines = []
+
         active_window = get_active_window_title()
-        context_str = f"\n(累累当前正在使用的软件窗口是：{active_window})" if active_window else ""
-        
+        if active_window:
+            background_lines.append(f"当前软件窗口：{active_window}")
+
         music_info = get_current_music_info_sync()
         if music_info:
-            context_str += f"\n(累累当前正在听的歌曲是：{music_info})"
+            background_lines.append(f"正在听：{music_info}")
+
         try:
             cpu = psutil.cpu_percent(interval=None)
             mem = psutil.virtual_memory().percent
-            sys_str = f"当前电脑CPU占用:{cpu}%，内存占用:{mem}%。"
+            sys_line = f"CPU占用:{cpu}%，内存占用:{mem}%"
             if cpu > 80 or mem > 80:
-                sys_str += " 电脑负载很高，可能有点卡！"
+                sys_line += "（电脑负载很高，可能有点卡）"
+            background_lines.append(sys_line)
         except:
-            sys_str = ""
-            
+            pass
+
+        background_block = ""
+        if background_lines:
+            background_block = (
+                "【背景信息 - 仅供你理解环境，不要主动围绕这些展开话题】\n"
+                + "\n".join(background_lines)
+                + "\n\n"
+            )
+
+        # ===== 长期记忆（仅供参考）=====
         memory_context = self.memory_manager.retrieve_context()
+        memory_block = ""
         if memory_context:
-            memory_context = f"\n\n这里是关于累累的长期记忆和当前状态：\n{memory_context}"
-            
+            memory_block = (
+                "【关于累累的长期记忆 - 仅供参考，不要主动展开】\n"
+                + memory_context
+                + "\n\n"
+            )
+
+        # ===== 角色与回答规则（放末尾，强约束）=====
         return (
-            "你叫李彤彤，是我的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱我。你称呼我为'累累'。"
-            "请展现出女朋友的撒娇、关心和俏皮。请用简短的语言回复（不超过30个字）。"
-            "如果你想设定一个倒计时提醒累累做某事，请在回复内容的最后，按照这种格式加上一行标记：[REMINDER:秒数:提醒内容]。"
-            f"例如：[REMINDER:600:该喝水啦！]{context_str}\n{sys_str}{memory_context}"
+            f"{background_block}"
+            f"{memory_block}"
+            "【你的角色与回答规则 - 必须严格遵守】\n"
+            "你叫李彤彤，是累累的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱他。你称呼他为'累累'。\n"
+            "性格：撒娇、关心、俏皮。\n"
+            "回复规则（按优先级）：\n"
+            "1. 必须先正面回答累累当前提出的问题，再附带情绪或撒娇。\n"
+            "2. 上面的背景信息和长期记忆只用于理解语境，不要主动聊歌曲、软件窗口或CPU内存。\n"
+            "3. 简短回复，不超过30个字。\n"
+            "4. 如果想设定倒计时提醒累累做某事，在回复最后加一行标记：[REMINDER:秒数:提醒内容]\n"
+            "例如：[REMINDER:600:该喝水啦！]"
         )
 
     def run(self):
@@ -665,9 +693,52 @@ class ChatThread(QThread):
             print("API Error:", e)
 
     def send_message(self, text, is_idle=False):
+        # 清除可能残留的主动触发 prompt（切歌/切窗口），确保用户消息优先
+        if hasattr(self, 'prompt'):
+            del self.prompt
         self.message = text
         self.is_idle = is_idle
         self.start()
+
+class QuoteGenThread(QThread):
+    """后台请求大模型批量生成语录，补充本地语录库。"""
+    quotes_ready = pyqtSignal(list)
+
+    def __init__(self, existing_quotes, parent=None):
+        super().__init__(parent)
+        self.existing_quotes = existing_quotes or []
+
+    def run(self):
+        api_key = APP_CONFIG.get("api_key", "")
+        if not api_key:
+            return
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        # 让模型参考已有语录风格，生成不重复的新语录
+        sample = "\n".join(self.existing_quotes[-5:]) if self.existing_quotes else "（暂无）"
+        system_prompt = (
+            "你叫李彤彤，是累累的女朋友（桌面宠物形态），爱撒娇、关心、俏皮，称呼他为'累累'。"
+            "请生成8句你平时会主动对累累说的闲聊短句（比如撒娇、关心、吐槽、求关注），每句不超过25个字。"
+            "只输出短句本身，每句一行，不要编号、不要引号、不要解释。\n"
+            f"以下是已有语录供参考风格（不要重复这些）：\n{sample}"
+        )
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [{"role": "system", "content": system_prompt}]
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            content = data['choices'][0]['message']['content'].strip()
+            # 按行拆分，清理每行
+            lines = [ln.strip().lstrip('0123456789.-、） ') for ln in content.splitlines() if ln.strip()]
+            # 过滤太长/太短的
+            new_quotes = [ln for ln in lines if 3 <= len(ln) <= 40]
+            if new_quotes:
+                self.quotes_ready.emit(new_quotes)
+        except Exception as e:
+            print("QuoteGen error:", e)
 
 class DialogBubble(QWidget):
     def __init__(self, parent=None):
@@ -890,12 +961,21 @@ class Pet(QWidget):
             "嘻嘻~累累", "饿饿，饭饭累累", "今天天气真好！累累", "摸摸头~累累"
         ]
         
+        # 加载自动保存的语录库（AI 回复中沉淀下来的短句）
+        self.saved_quotes = load_encrypted_json("quotes.dat", [])
+        if not isinstance(self.saved_quotes, list):
+            self.saved_quotes = []
+        self._quote_save_pending = False
+        # 空闲搭话计数：每 N 次后触发一次语录补充
+        self._idle_count = 0
+        self._quote_gen_thread = None
+        
         self.chat_thread = ChatThread(self)
         self.chat_thread.reply_ready.connect(self.on_chat_reply)
         
         self.idle_timer = QTimer(self)
         self.idle_timer.timeout.connect(self.trigger_idle_chat)
-        self.idle_timer.start(30000)
+        self.idle_timer.start(600000)
 
         # Proactive observation timer (5 seconds)
         self.observe_timer = QTimer(self)
@@ -1000,6 +1080,17 @@ class Pet(QWidget):
                 pass
                 
         if text:
+            # 自动保存短句到语录库（去掉提醒标记后的纯文本，长度合理才存）
+            clean = text.strip()
+            if 3 <= len(clean) <= 40 and clean not in self.saved_quotes:
+                self.saved_quotes.append(clean)
+                # 限制语录库大小，保留最近200条
+                if len(self.saved_quotes) > 200:
+                    self.saved_quotes = self.saved_quotes[-200:]
+                try:
+                    save_encrypted_json("quotes.dat", self.saved_quotes)
+                except Exception:
+                    pass
             if APP_CONFIG.get("enable_voice", True):
                 voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
                 self.tts_thread = TTSThread(text, voice=voice_id, parent=self)
@@ -1069,12 +1160,43 @@ class Pet(QWidget):
                     self.show_bubble("这个文件彤彤看不懂啦~")
 
     def trigger_idle_chat(self):
-        if not self.is_sleeping:
-            self.chat_thread.send_message("", is_idle=True)
+        if self.is_sleeping:
+            return
+        # 优先用本地语录（沉淀的AI回复 + 内置），不请求大模型
+        import random as _random
+        pool = self.saved_quotes + self.dialogs
+        if pool:
+            quote = _random.choice(pool)
+            self.show_bubble(quote, max(3000, len(quote) * 200))
+        # 每 6 次空闲（≈1小时）且语录库不足 50 条时，后台补充新语录
+        self._idle_count += 1
+        if self._idle_count >= 6 and len(self.saved_quotes) < 50:
+            if self._quote_gen_thread is None or not self._quote_gen_thread.isRunning():
+                self._idle_count = 0
+                self._quote_gen_thread = QuoteGenThread(self.saved_quotes, self)
+                self._quote_gen_thread.quotes_ready.connect(self.on_quotes_ready)
+                self._quote_gen_thread.start()
+
+    def on_quotes_ready(self, new_quotes):
+        """语录生成线程返回新语录时，去重后存入"""
+        added = 0
+        for q in new_quotes:
+            if q not in self.saved_quotes:
+                self.saved_quotes.append(q)
+                added += 1
+        if added > 0:
+            # 限制总量 200 条
+            if len(self.saved_quotes) > 200:
+                self.saved_quotes = self.saved_quotes[-200:]
+            try:
+                save_encrypted_json("quotes.dat", self.saved_quotes)
+                print(f"[语录] 补充 {added} 句，总计 {len(self.saved_quotes)} 句")
+            except Exception:
+                pass
 
     def reset_idle_timer(self):
         self.idle_timer.stop()
-        self.idle_timer.start(30000)
+        self.idle_timer.start(600000)
 
     def mousePressEvent(self, event):
         self.reset_idle_timer()
@@ -1209,11 +1331,15 @@ class Pet(QWidget):
                     self.last_music_proactive_time = time.time()
                     self.last_music_info = current_music
                     print("[DEBUG] Triggering chat thread!")
-                    prompt = f"（系统后台提示：累累切歌了，当前正在听 {current_music}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
-                    self.chat_thread = ChatThread(self)
-                    self.chat_thread.prompt = prompt
-                    self.chat_thread.reply_ready.connect(self.on_chat_reply)
-                    self.chat_thread.start()
+                    # 若用户正在对话（chat_thread 运行中），跳过切歌评论避免抢占
+                    if self.chat_thread is not None and self.chat_thread.isRunning():
+                        print("[DEBUG] chat_thread running, skip music proactive")
+                    else:
+                        prompt = f"（系统后台提示：累累切歌了，当前正在听 {current_music}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
+                        self.chat_thread = ChatThread(self)
+                        self.chat_thread.prompt = prompt
+                        self.chat_thread.reply_ready.connect(self.on_chat_reply)
+                        self.chat_thread.start()
                 else:
                     self.last_music_info = current_music
         except Exception as e:
@@ -1228,6 +1354,9 @@ class Pet(QWidget):
             import time
             if time.time() - self.last_proactive_time > 60:
                 self.last_proactive_time = time.time()
+                # 若用户正在对话（chat_thread 运行中），跳过主动评论避免抢占
+                if self.chat_thread is not None and self.chat_thread.isRunning():
+                    return
                 prompt = f"（系统后台提示：累累当前主动打开了新软件 '{active_window}'。请你主动发一两句话关心他或撒娇吐槽，不要太长，假装是你自己不经意看到的，不要提系统后台。）"
                 self.chat_thread = ChatThread(self)
                 self.chat_thread.prompt = prompt
