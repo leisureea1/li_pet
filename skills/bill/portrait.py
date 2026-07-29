@@ -61,4 +61,15 @@ def build_portrait(df, router=None):
         "episodes": len(impulse_clusters)
     }
     
+    # 5. Game / Top-up Expenses
+    game_keywords = ["游戏", "充值", "点券", "steam", "腾讯", "网易", "米哈游", "apple", "苹果"]
+    df_game = df_expense[df_expense['counterparty'].str.lower().str.contains('|'.join(game_keywords), na=False) | df_expense['product'].str.lower().str.contains('|'.join(game_keywords), na=False)]
+    
+    if not df_game.empty:
+        portrait['game_expenses'] = {
+            "total_spent": float(df_game['amount'].sum()),
+            "transaction_count": len(df_game),
+            "favorite_games": df_game['counterparty'].value_counts().head(2).index.tolist()
+        }
+    
     return portrait

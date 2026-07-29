@@ -594,15 +594,22 @@ class Pet(QWidget):
                 try:
                     ext = os.path.splitext(file_path)[1].lower()
                     if ext in ['.xlsx', '.xls', '.csv']:
-                        # Delegate to bill_insight skill
-                        prompt = (
-                            f"累累刚才拖拽丢给我了一份账单文件，路径是：{file_path}。\n"
-                            "请你立刻调用 `bill_insight` 技能来详细分析这份文件。\n"
-                            "【重要要求】技能返回数据后，请务必用小管家/女朋友的撒娇口吻给他汇报。不要干瘪地念数字，要像这样俏皮：\n"
-                            "『[EMOTION:happy] 累累～我偷看了你的账单，你居然是个干饭人！...』"
-                        )
-                        self.chat_thread.send_message(prompt)
                         self.show_bubble("正在像小管家一样仔细核对你的账单哦...")
+                        
+                        # Process locally first
+                        from skills.bill_insight import execute as bill_execute
+                        result = bill_execute(file_path=file_path, pet_instance=self, memory_manager=self.chat_thread.memory_manager)
+                        
+                        if result.get('success'):
+                            prompt = (
+                                "【系统提示：以下是本地技能分析出的累累的账单洞察数据】\n"
+                                f"{result['data']['insights']}\n\n"
+                                "【重要要求】请根据以上数据，务必用小管家/女朋友的撒娇口吻给他汇报。不要干瘪地念数字，多发掘有趣的细节进行调侃或关心（比如充值游戏、买零食、和人抢着买单）。\n"
+                                "请像这样俏皮：『[EMOTION:happy] 累累～我偷看了你的账单，你居然是个干饭人！...』"
+                            )
+                            self.chat_thread.send_message(prompt)
+                        else:
+                            self.show_bubble(f"账单解析失败啦：{result.get('error')}")
                     else:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read(8000)
