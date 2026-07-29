@@ -21,22 +21,35 @@ def load_bill(file_path):
             # Fallback for some Chinese CSV encodings (including fake xls files)
             df = pd.read_csv(file_path, encoding='gbk')
             load_method = "csv_gbk"
-        except:
+        except Exception as e2:
+            print(f"[Bill Importer Debug] Failed to read file. Exception: {e2}")
             return None
             
     # Find the header row (sometimes bills have metadata at the top)
     header_idx = 0
     
-    # Check if the very first row (the column headers of our dummy df) is actually the real header
-    header_str = str(df.columns.tolist()).lower()
-    if '金额' in header_str and ('交易对方' in header_str or '交易时间' in header_str or '付款时间' in header_str):
-        header_idx = 0
+    if load_method == "excel":
+        # Check if the very first row is actually the real header
+        header_str = str(df.columns.tolist()).lower()
+        if '金额' in header_str and ('交易对方' in header_str or '交易时间' in header_str or '付款时间' in header_str):
+            header_idx = 0
+        else:
+            for i, row in df.iterrows():
+                row_str = str(row.values).lower()
+                if '金额' in row_str and ('交易对方' in row_str or '交易时间' in row_str or '付款时间' in row_str):
+                    header_idx = i + 1
+                    break
     else:
-        for i, row in df.iterrows():
-            row_str = str(row.values).lower()
-            if '金额' in row_str and ('交易对方' in row_str or '交易时间' in row_str or '付款时间' in row_str):
-                header_idx = i + 1
-                break
+        # For CSVs, read line by line to avoid pandas MultiIndex parsing issues
+        encoding = 'utf-8' if load_method == "csv_utf8" else 'gbk'
+        with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+            for i, line in enumerate(f):
+                line_lower = line.lower()
+                if '金额' in line_lower and ('交易对方' in line_lower or '交易时间' in line_lower or '付款时间' in line_lower):
+                    header_idx = i
+                    break
+                    
+    print(f"[Bill Importer Debug] Found header_idx = {header_idx}")
             
     # Re-read with correct header
     if load_method == "excel":
@@ -83,6 +96,7 @@ def load_bill(file_path):
     required = ['time', 'counterparty', 'io', 'amount']
     for req in required:
         if req not in df.columns:
+            print(f"[Bill Importer Debug] Missing required column: {req}. Current columns: {df.columns.tolist()}")
             return None # Missing crucial data
             
     # Clean data
