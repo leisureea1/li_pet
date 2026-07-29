@@ -433,10 +433,13 @@ class Pet(QWidget):
             
     def on_chat_reply(self, text):
         emotion = "normal"
-        match_emotion = re.search(r'\[EMOTION:([a-zA-Z]+)\]', text)
-        if match_emotion:
-            emotion = match_emotion.group(1).lower()
-            text = text.replace(match_emotion.group(0), "").strip()
+        # 查找所有的 emotion 标签，我们只用最后一个作为最终的动画状态
+        matches = re.findall(r'\[EMOTION:([a-zA-Z]+)\]', text)
+        if matches:
+            emotion = matches[-1].lower()
+            
+        # 移除文本中所有的 [EMOTION:xxx] 标签
+        text = re.sub(r'\[EMOTION:[a-zA-Z]+\]\s*', '', text).strip()
 
         match = re.search(r'\[REMINDER:(\d+):(.*?)\]', text)
         if match:
@@ -595,15 +598,17 @@ class Pet(QWidget):
                         wb = openpyxl.load_workbook(file_path, data_only=True)
                         sheet = wb.active
                         content = ""
-                        for i, row in enumerate(sheet.iter_rows(values_only=True)):
-                            if i > 50:
-                                content += "\n...(内容过长已截断)"
+                        for row in sheet.iter_rows(values_only=True):
+                            if len(content) > 8000:
+                                content += "\n...(内容过长，为保护彤彤的大脑已自动截断最末尾部分)"
                                 break
                             content += ",".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
-                        prompt = f"累累刚才拖拽丢给我了一份 Excel 文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。如果像是账单或报表，可以帮他简单分析一下。"
+                        prompt = f"累累刚才拖拽丢给我了一份 Excel 文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。如果是账单或报表，请务必帮他仔细分析一下消费习惯、经常光顾的店铺等细节。"
                     else:
                         with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read(2000)
+                            content = f.read(8000)
+                        if len(content) >= 8000:
+                            content += "\n...(内容过长已截断)"
                         prompt = f"累累刚才拖拽丢给我了一份文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。"
                         
                     self.chat_thread.send_message(prompt)
