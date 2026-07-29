@@ -36,7 +36,7 @@ def analyze_relationships(df):
             row2 = group.iloc[i+1]
             
             time_diff = (row2['time'] - row1['time']).total_seconds() / 3600.0 # in hours
-            if time_diff < 24.0 and row1['io'] != row2['io'] and abs(row1['amount'] - row2['amount']) < 1.0:
+            if time_diff <= 2.0 and row1['io'] != row2['io'] and abs(row1['amount'] - row2['amount']) < 0.01:
                 loops_found += 1
                 loop_amount = row1['amount']
                 
