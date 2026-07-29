@@ -73,9 +73,9 @@ def load_bill(file_path):
         if load_method == "excel":
             df = pd.read_excel(file_path, header=header_idx)
         elif load_method == "csv_utf8":
-            df = pd.read_csv(file_path, encoding='utf-8', header=header_idx)
+            df = pd.read_csv(file_path, encoding='utf-8', skiprows=header_idx)
         else:
-            df = pd.read_csv(file_path, encoding='gbk', header=header_idx)
+            df = pd.read_csv(file_path, encoding='gbk', skiprows=header_idx)
     except Exception as e:
         print(f"[Bill Importer Debug] Final pandas load failed: {e}")
         return None
@@ -105,10 +105,18 @@ def load_bill(file_path):
     
     # Rename columns that exist
     rename_dict = {}
+    mapped_targets = set()
     for col in df.columns:
+        # Prioritize exact match
+        if col in mapping and mapping[col] not in mapped_targets:
+            rename_dict[col] = mapping[col]
+            mapped_targets.add(mapping[col])
+            continue
+            
         for k, v in mapping.items():
-            if k == col or k in col:
+            if k in col and v not in mapped_targets:
                 rename_dict[col] = v
+                mapped_targets.add(v)
                 break
                 
     df.rename(columns=rename_dict, inplace=True)
