@@ -1,0 +1,10 @@
+{
+  "weather": true,
+  "music": true,
+  "reminder": true,
+  "search": true,
+  "calculator": true,
+  "memory": true,
+  "system": true,
+  "pet_state": true
+}

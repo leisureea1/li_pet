@@ -8,3 +8,5 @@ cython
 winsdk; sys_platform == 'win32'
 pycaw; sys_platform == 'win32'
 comtypes; sys_platform == 'win32'
+onnxruntime
+tokenizers

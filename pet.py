@@ -2,6 +2,11 @@ import sqlite3
 from datetime import datetime
 import sys
 import os
+try:
+    import onnxruntime
+    import tokenizers
+except ImportError:
+    pass
 import random
 import math
 import requests
@@ -13,732 +18,20 @@ import psutil
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-def get_resource_dir():
-    if getattr(sys, 'frozen', False):
-        return sys._MEIPASS
-    return os.path.dirname(os.path.abspath(__file__))
-
-def get_data_dir():
-    if sys.platform == 'win32':
-        app_data = os.getenv('APPDATA')
-        if app_data:
-            path = os.path.join(app_data, "LiTongtongPet")
-            os.makedirs(path, exist_ok=True)
-            return path
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-def xor_crypt(data_str, key="tongtong"):
-    res = []
-    for i in range(len(data_str)):
-        res.append(chr(ord(data_str[i]) ^ ord(key[i % len(key)])))
-    return "".join(res)
-
-def load_encrypted_json(filename, default):
-    filepath = os.path.join(get_data_dir(), filename)
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                b64_str = f.read()
-            decrypted = xor_crypt(base64.b64decode(b64_str).decode('utf-8'))
-            return json.loads(decrypted)
-        except Exception:
-            pass
-    return default
-
-def save_encrypted_json(filename, data):
-    filepath = os.path.join(get_data_dir(), filename)
-    try:
-        json_str = json.dumps(data)
-        encrypted = base64.b64encode(xor_crypt(json_str).encode('utf-8')).decode('utf-8')
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(encrypted)
-    except Exception as e:
-        print(f"Error saving {filename}: {e}")
-
-def get_active_window_title():
-    if sys.platform == 'win32':
-        import ctypes
-        try:
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-            buf = ctypes.create_unicode_buffer(length + 1)
-            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-            return buf.value if buf.value else ""
-        except:
-            return ""
-    elif sys.platform == 'darwin':
-        import subprocess
-        script = 'tell application "System Events" to get name of first application process whose frontmost is true'
-        try:
-            res = subprocess.check_output(['osascript', '-e', script], stderr=subprocess.DEVNULL)
-            return res.decode('utf-8').strip()
-        except:
-            return ""
-    return ""
-
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
 
-def load_config():
-    old_config_path = os.path.join(get_data_dir(), "config.json")
-    if os.path.exists(old_config_path):
-        try:
-            with open(old_config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            save_encrypted_json("config.dat", config)
-            os.remove(old_config_path)
-            return config
-        except:
-            pass
-    return load_encrypted_json("config.dat", {"api_key": "", "autostart": False, "enable_voice": True, "tts_voice": "zh-CN-XiaoxiaoNeural"})
+from core.utils import get_resource_dir, get_data_dir, get_active_window_title, get_title_from_pid, get_current_music_info_sync, load_encrypted_json, save_encrypted_json
+from core.config import APP_CONFIG, save_config, set_autostart
+from core.chat import TTSThread, ChatThread, QuoteGenThread
+from core.companion import CompanionThread
+from core.event import EventManager
+from core.memory import MemoryManager
+from core.skill_manager import SkillManager
+from core.web_server import WebServerThread
+import webbrowser
 
-def save_config(config):
-    save_encrypted_json("config.dat", config)
-
-def set_autostart(enable=True):
-    if sys.platform == 'win32':
-        import winreg
-        try:
-            key = winreg.HKEY_CURRENT_USER
-            key_value = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            
-            if getattr(sys, 'frozen', False):
-                exe_path = sys.executable
-            else:
-                exe_path = os.path.abspath(sys.argv[0])
-                
-            open_key = winreg.OpenKey(key, key_value, 0, winreg.KEY_ALL_ACCESS)
-            if enable:
-                winreg.SetValueEx(open_key, "LiTongtongPet", 0, winreg.REG_SZ, f'"{exe_path}"')
-            else:
-                try:
-                    winreg.DeleteValue(open_key, "LiTongtongPet")
-                except FileNotFoundError:
-                    pass
-            winreg.CloseKey(open_key)
-        except Exception as e:
-            print("Failed to set autostart (win32):", e)
-    elif sys.platform == 'darwin':
-        plist_path = os.path.expanduser("~/Library/LaunchAgents/com.litongtong.pet.plist")
-        if getattr(sys, 'frozen', False):
-            exe_path = sys.executable
-        else:
-            exe_path = os.path.abspath(sys.argv[0])
-            
-        if enable:
-            plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.litongtong.pet</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{exe_path}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-</dict>
-</plist>"""
-            try:
-                os.makedirs(os.path.dirname(plist_path), exist_ok=True)
-                with open(plist_path, "w", encoding="utf-8") as f:
-                    f.write(plist_content)
-            except Exception as e:
-                print("Failed to set autostart (darwin):", e)
-        else:
-            if os.path.exists(plist_path):
-                try:
-                    os.remove(plist_path)
-                except Exception as e:
-                    print("Failed to remove autostart (darwin):", e)
-
-APP_CONFIG = load_config()
-if not APP_CONFIG.get("api_key"):
-    APP_CONFIG["api_key"] = "sk-1ad1dacb6e1d4cde851ce2488abfe001"
-    save_config(APP_CONFIG)
-
-class TTSThread(QThread):
-    ready_signal = pyqtSignal(str)
-    def __init__(self, text, voice="zh-CN-XiaoxiaoNeural", parent=None):
-        super().__init__(parent)
-        self.text = text
-        self.voice = voice
-        
-    def run(self):
-        try:
-            import edge_tts
-            import tempfile
-            import uuid
-            import asyncio
-            temp_dir = tempfile.gettempdir()
-            out_file = os.path.join(temp_dir, f"tongtong_voice_{uuid.uuid4().hex}.mp3")
-            
-            communicate = edge_tts.Communicate(self.text, self.voice)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(communicate.save(out_file))
-            loop.close()
-            
-            self.ready_signal.emit(out_file)
-        except Exception as e:
-            print("TTS error:", e)
-
-class SettingsDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(350, 250)
-        self.setStyleSheet("""
-            QDialog { background-color: rgba(255, 240, 245, 240); border-radius: 15px; border: 2px solid #ffb6c1; }
-            QLabel { color: #ff69b4; font-weight: bold; font-size: 14px; }
-            QLineEdit { border: 2px solid #ffb6c1; border-radius: 8px; padding: 5px; background-color: white; color: #333; }
-            QPushButton { background-color: #ffb6c1; color: white; border-radius: 10px; padding: 8px 15px; font-weight: bold; }
-            QPushButton:hover { background-color: #ff69b4; }
-            QCheckBox { color: #ff69b4; font-weight: bold; }
-        """)
-        
-        layout = QVBoxLayout(self)
-        
-        header_layout = QHBoxLayout()
-        title = QLabel("彤彤的设置 (´｡• ᵕ •｡`)")
-        close_btn = QPushButton("✖")
-        close_btn.setFixedSize(30, 30)
-        close_btn.setStyleSheet("QPushButton {background-color: transparent; color: #ff69b4; font-size: 16px; border:none;} QPushButton:hover {color: red;}")
-        close_btn.clicked.connect(self.reject)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(close_btn)
-        
-        form_layout = QFormLayout()
-        self.api_key_input = QLineEdit()
-        self.api_key_input.setEchoMode(QLineEdit.Password)
-        self.api_key_input.setText(APP_CONFIG.get("api_key", ""))
-        form_layout.addRow(QLabel("DeepSeek API Key:"), self.api_key_input)
-        
-        self.autostart_checkbox = QCheckBox("开机自启动")
-        self.autostart_checkbox.setChecked(APP_CONFIG.get("autostart", False))
-        form_layout.addRow(QLabel("自启动:"), self.autostart_checkbox)
-        
-        self.voice_checkbox = QCheckBox("允许彤彤说话")
-        self.voice_checkbox.setChecked(APP_CONFIG.get("enable_voice", True))
-        form_layout.addRow(QLabel("声音开关:"), self.voice_checkbox)
-        
-        self.voice_combo = QComboBox()
-        self.voice_combo.setStyleSheet("QComboBox { border: 2px solid #ffb6c1; border-radius: 5px; padding: 3px; background-color: white; color: #333; }")
-        self.voices = {
-            "晓晓 (温暖亲切)": "zh-CN-XiaoxiaoNeural",
-            "晓伊 (活泼可爱)": "zh-CN-XiaoyiNeural",
-            "晓北 (东北幽默)": "zh-CN-liaoning-XiaobeiNeural",
-            "晓妮 (陕西明快)": "zh-CN-shaanxi-XiaoniNeural",
-            "晓臻 (台湾轻柔)": "zh-TW-HsiaoChenNeural"
-        }
-        for name in self.voices.keys():
-            self.voice_combo.addItem(name)
-            
-        current_voice = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-        for i, (name, v_id) in enumerate(self.voices.items()):
-            if v_id == current_voice:
-                self.voice_combo.setCurrentIndex(i)
-                break
-                
-        preview_btn = QPushButton("▶️ 试听")
-        preview_btn.setFixedSize(60, 26)
-        preview_btn.setStyleSheet("QPushButton { background-color: #ff91a4; color: white; border-radius: 5px; font-weight: bold; font-size: 11px; } QPushButton:hover { background-color: #ff69b4; }")
-        preview_btn.clicked.connect(self.preview_voice)
-        
-        voice_layout = QHBoxLayout()
-        voice_layout.addWidget(self.voice_combo)
-        voice_layout.addWidget(preview_btn)
-        form_layout.addRow(QLabel("选择音色:"), voice_layout)
-        
-        save_btn = QPushButton("保存设置")
-        save_btn.clicked.connect(self.save_settings)
-        
-        layout.addLayout(header_layout)
-        layout.addLayout(form_layout)
-        layout.addWidget(save_btn, alignment=Qt.AlignCenter)
-        self.old_pos = None
-
-    def preview_voice(self):
-        voice_name = self.voice_combo.currentText()
-        voice_id = self.voices[voice_name]
-        self.preview_thread = TTSThread("你好呀，累累！我是彤彤，以后就用这个声音陪着你啦！", voice=voice_id)
-        self.preview_thread.ready_signal.connect(self.play_preview)
-        self.preview_thread.start()
-
-    def play_preview(self, audio_file):
-        try:
-            import pygame
-            pygame.mixer.init()
-            pygame.mixer.music.load(audio_file)
-            pygame.mixer.music.play()
-        except Exception as e:
-            QMessageBox.warning(self, "播放失败", f"无法播放试听音频: {e}")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.old_pos = event.globalPos()
-
-    def mouseMoveEvent(self, event):
-        if self.old_pos is not None:
-            delta = event.globalPos() - self.old_pos
-            self.move(self.pos() + delta)
-            self.old_pos = event.globalPos()
-
-    def mouseReleaseEvent(self, event):
-        self.old_pos = None
-
-    def save_settings(self):
-        APP_CONFIG["api_key"] = self.api_key_input.text().strip()
-        APP_CONFIG["autostart"] = self.autostart_checkbox.isChecked()
-        APP_CONFIG["enable_voice"] = self.voice_checkbox.isChecked()
-        APP_CONFIG["tts_voice"] = self.voices.get(self.voice_combo.currentText(), "zh-CN-XiaoxiaoNeural")
-        save_config(APP_CONFIG)
-        set_autostart(APP_CONFIG["autostart"])
-        QMessageBox.information(self, "成功", "设置已保存！彤彤记住了哦~")
-        self.accept()
-
-class MemoryManager:
-    def __init__(self, db_path):
-        self.db_path = db_path
-        self.init_db()
-
-    def init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_profile (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    key TEXT,
-                    value TEXT,
-                    category TEXT,
-                    confidence REAL,
-                    source TEXT,
-                    active BOOLEAN,
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS preferences (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    type TEXT,
-                    item TEXT,
-                    value TEXT,
-                    weight REAL,
-                    active BOOLEAN,
-                    replaced_by INTEGER,
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    time TEXT,
-                    event_type TEXT,
-                    summary TEXT,
-                    importance REAL,
-                    emotion TEXT,
-                    related TEXT,
-                    decay_rate REAL,
-                    last_used TEXT
-                )
-            ''')
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS working_memory (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    role TEXT,
-                    content TEXT,
-                    timestamp TEXT
-                )
-            ''')
-            conn.commit()
-
-    def add_profile(self, key, value, category="basic", confidence=1.0, source="infer"):
-        now = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO user_profile (key, value, category, confidence, source, active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (key, value, category, confidence, source, True, now, now))
-            conn.commit()
-
-    def add_preference(self, p_type, item, value, weight=1.0):
-        now = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE preferences SET active = 0, updated_at = ? WHERE type = ? AND item = ? AND active = 1
-            ''', (now, p_type, item))
-            cursor.execute('''
-                INSERT INTO preferences (type, item, value, weight, active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (p_type, item, value, weight, True, now, now))
-            conn.commit()
-
-    def add_event(self, event_type, summary, importance, emotion="", related="", decay_rate=30.0):
-        now = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO events (time, event_type, summary, importance, emotion, related, decay_rate, last_used)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (now, event_type, summary, importance, emotion, related, decay_rate, now))
-            conn.commit()
-
-    def add_working_memory(self, role, content):
-        now = datetime.now().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO working_memory (role, content, timestamp) VALUES (?, ?, ?)', (role, content, now))
-            conn.commit()
-            
-            cursor.execute('SELECT count(*) FROM working_memory')
-            if cursor.fetchone()[0] > 100:
-                cursor.execute('DELETE FROM working_memory WHERE id NOT IN (SELECT id FROM working_memory ORDER BY timestamp DESC LIMIT 100)')
-                conn.commit()
-
-    def get_recent_working_memory(self, limit=20):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT role, content FROM working_memory ORDER BY timestamp DESC LIMIT ?', (limit,))
-            rows = cursor.fetchall()
-            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
-
-    def retrieve_context(self):
-        context_parts = []
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT key, value FROM user_profile WHERE active = 1 ORDER BY confidence DESC LIMIT 10')
-            profiles = cursor.fetchall()
-            if profiles:
-                context_parts.append("【用户画像】\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in profiles]))
-                
-            cursor.execute('SELECT item, value FROM preferences WHERE active = 1 ORDER BY weight DESC LIMIT 10')
-            prefs = cursor.fetchall()
-            if prefs:
-                context_parts.append("【用户偏好】\n" + "\n".join([f"- {r[0]}: {r[1]}" for r in prefs]))
-                
-            cursor.execute('SELECT id, time, summary, importance, decay_rate FROM events')
-            events = cursor.fetchall()
-            now = datetime.now()
-            scored_events = []
-            for ev in events:
-                try:
-                    ev_time = datetime.fromisoformat(ev[1])
-                    days_diff = (now - ev_time).days
-                    decay = ev[4] if ev[4] else 30.0
-                    score = ev[3] * math.exp(-days_diff / decay)
-                    scored_events.append((score, ev[2]))
-                except:
-                    pass
-            scored_events.sort(key=lambda x: x[0], reverse=True)
-            top_events = scored_events[:5]
-            if top_events:
-                context_parts.append("【近期事件/状态】\n" + "\n".join([f"- {r[1]}" for r in top_events]))
-                
-        return "\n\n".join(context_parts)
-
-class MemoryExtractorThread(QThread):
-    def __init__(self, user_msg, ai_reply, memory_manager, parent=None):
-        super().__init__(parent)
-        self.user_msg = user_msg
-        self.ai_reply = ai_reply
-        self.memory_manager = memory_manager
-        
-    def run(self):
-        api_key = APP_CONFIG.get("api_key", "")
-        if not api_key: return
-            
-        system_prompt = (
-            "你是一个记忆管理器。你的任务是判断下面对话是否产生值得长期保存的信息。\n"
-            "规则：\n"
-            "1. 不记录一次性行为（如“今天吃火锅”）\n"
-            "2. 不记录临时情绪，除非影响长期关系\n"
-            "3. 不推测用户信息，用户明确表达优先级最高\n"
-            "输出 JSON 数组格式，包含 type (profile/preference/event) 和 data，不要输出其他废话。\n"
-            "例如: [{\"type\":\"event\", \"data\":{\"event_type\":\"project\", \"summary\":\"用户正在开发AI桌宠\", \"importance\":0.8}}]"
-        )
-        
-        url = "https://api.deepseek.com/chat/completions"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"用户: {self.user_msg}\nAI: {self.ai_reply}"}
-            ]
-        }
-        
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            content = data['choices'][0]['message']['content'].strip()
-            
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                memories = json.loads(match.group(0))
-                for mem in memories:
-                    m_type = mem.get("type")
-                    m_data = mem.get("data", {})
-                    if m_type == "profile":
-                        self.memory_manager.add_profile(
-                            m_data.get("key", ""), m_data.get("value", ""),
-                            m_data.get("category", "basic"), m_data.get("confidence", 0.8), "infer"
-                        )
-                    elif m_type == "preference":
-                        self.memory_manager.add_preference(
-                            m_data.get("type", "general"), m_data.get("item", ""),
-                            m_data.get("value", ""), m_data.get("weight", 0.8)
-                        )
-                    elif m_type == "event":
-                        importance = min(m_data.get("importance", 0.5), 0.8)
-                        ev_type = m_data.get("event_type", "general")
-                        if ev_type in ["chat", "daily"]: importance = min(importance, 0.3)
-                        self.memory_manager.add_event(
-                            ev_type, m_data.get("summary", ""),
-                            importance, m_data.get("emotion", "")
-                        )
-        except Exception as e:
-            print("Memory Extractor Error:", e)
-
-def get_title_from_pid(target_pid):
-    if sys.platform != 'win32':
-        return ""
-    try:
-        import ctypes
-        titles = []
-        def callback(hwnd, hwnds):
-            pid = ctypes.c_ulong()
-            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value == target_pid:
-                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buff = ctypes.create_unicode_buffer(length + 1)
-                    ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
-                    titles.append(buff.value)
-            return True
-        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
-        ctypes.windll.user32.EnumWindows(EnumWindowsProc(callback), 0)
-        
-        valid_titles = [t for t in titles if t not in ["Default IME", "MSCTFIME UI", "网易云音乐"] and len(t) > 2]
-        if valid_titles:
-            for t in valid_titles:
-                if " - " in t:
-                    return t
-            return valid_titles[0]
-    except Exception:
-        pass
-    return ""
-
-def get_current_music_info_sync():
-    if sys.platform != 'win32':
-        return ""
-    try:
-        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager
-        async def fetch():
-            manager = await GlobalSystemMediaTransportControlsSessionManager.request_async()
-            sessions = manager.get_sessions()
-            for s in sessions:
-                try:
-                    playback_info = s.get_playback_info()
-                    if playback_info:
-                        status = playback_info.playback_status
-                        status_val = status.value if hasattr(status, 'value') else status
-                        if status_val == 4:
-                            info = await s.try_get_media_properties_async()
-                            title = info.title if info.title else "未知"
-                            artist = info.artist if info.artist else "未知"
-                            return f"{artist} - {title}"
-                except Exception:
-                    continue
-                    
-            # Fallback to current session
-            session = manager.get_current_session()
-            if session:
-                info = await session.try_get_media_properties_async()
-                title = info.title if info.title else "未知"
-                artist = info.artist if info.artist else "未知"
-                return f"{artist} - {title}"
-            return ""
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(fetch())
-    except Exception as e:
-        print("Music fetch error:", e)
-        return ""
-
-class ChatThread(QThread):
-    reply_ready = pyqtSignal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.message = ""
-        self.is_idle = False
-        self.memory_manager = MemoryManager(os.path.join(get_data_dir(), "memory.db"))
-        self.extractor_thread = None
-
-    def get_system_prompt(self):
-        # ===== 背景信息（仅供理解语境，不主动展开）=====
-        background_lines = []
-
-        active_window = get_active_window_title()
-        if active_window:
-            background_lines.append(f"当前软件窗口：{active_window}")
-
-        music_info = get_current_music_info_sync()
-        if music_info:
-            background_lines.append(f"正在听：{music_info}")
-
-        try:
-            cpu = psutil.cpu_percent(interval=None)
-            mem = psutil.virtual_memory().percent
-            sys_line = f"CPU占用:{cpu}%，内存占用:{mem}%"
-            if cpu > 80 or mem > 80:
-                sys_line += "（电脑负载很高，可能有点卡）"
-            background_lines.append(sys_line)
-        except:
-            pass
-
-        background_block = ""
-        if background_lines:
-            background_block = (
-                "【背景信息 - 仅供你理解环境，不要主动围绕这些展开话题】\n"
-                + "\n".join(background_lines)
-                + "\n\n"
-            )
-
-        # ===== 长期记忆（仅供参考）=====
-        memory_context = self.memory_manager.retrieve_context()
-        memory_block = ""
-        if memory_context:
-            memory_block = (
-                "【关于累累的长期记忆 - 仅供参考，不要主动展开】\n"
-                + memory_context
-                + "\n\n"
-            )
-
-        # ===== 角色与回答规则（放末尾，强约束）=====
-        return (
-            f"{background_block}"
-            f"{memory_block}"
-            "【你的角色与回答规则 - 必须严格遵守】\n"
-            "你叫李彤彤，是累累的女朋友，虽然你现在变成了一个桌面宠物，但你非常爱他。你称呼他为'累累'。\n"
-            "性格：撒娇、关心、俏皮。\n"
-            "回复规则（按优先级）：\n"
-            "1. 必须先正面回答累累当前提出的问题，再附带情绪或撒娇。\n"
-            "2. 上面的背景信息和长期记忆只用于理解语境，不要主动聊歌曲、软件窗口或CPU内存。\n"
-            "3. 简短回复，不超过30个字。\n"
-            "4. 如果想设定倒计时提醒累累做某事，在回复最后加一行标记：[REMINDER:秒数:提醒内容]\n"
-            "例如：[REMINDER:600:该喝水啦！]"
-        )
-
-    def run(self):
-        system_msg = {"role": "system", "content": self.get_system_prompt()}
-        
-        url = "https://api.deepseek.com/chat/completions"
-        api_key = APP_CONFIG.get("api_key", "")
-        if not api_key:
-            self.reply_ready.emit("累累，你还没有配置 API Key 哦，右键点击我进行设置吧！")
-            return
-            
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        history = self.memory_manager.get_recent_working_memory()
-        current_messages = [system_msg] + history
-        
-        if self.is_idle:
-            current_messages.append({"role": "user", "content": "（累累很久没理你了，你现在在想什么？主动跟他说一句话吧，要符合你的角色设定，不超过15个字）"})
-        elif hasattr(self, 'prompt'):
-            current_messages.append({"role": "user", "content": self.prompt})
-        else:
-            if self.message:
-                self.memory_manager.add_working_memory("user", self.message)
-                current_messages.append({"role": "user", "content": self.message})
-
-        payload = {
-            "model": "deepseek-chat",
-            "messages": current_messages
-        }
-
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            reply_text = data['choices'][0]['message']['content'].strip()
-            
-            if not self.is_idle:
-                self.memory_manager.add_working_memory("assistant", reply_text)
-                if self.message:
-                    # Launch Memory Extractor
-                    self.extractor_thread = MemoryExtractorThread(self.message, reply_text, self.memory_manager, None)
-                    self.extractor_thread.start()
-            
-            self.reply_ready.emit(reply_text)
-        except Exception as e:
-            self.reply_ready.emit("呜呜，网络不通畅，我想不出来了...")
-            print("API Error:", e)
-
-    def send_message(self, text, is_idle=False):
-        # 清除可能残留的主动触发 prompt（切歌/切窗口），确保用户消息优先
-        if hasattr(self, 'prompt'):
-            del self.prompt
-        self.message = text
-        self.is_idle = is_idle
-        self.start()
-
-class QuoteGenThread(QThread):
-    """后台请求大模型批量生成语录，补充本地语录库。"""
-    quotes_ready = pyqtSignal(list)
-
-    def __init__(self, existing_quotes, parent=None):
-        super().__init__(parent)
-        self.existing_quotes = existing_quotes or []
-
-    def run(self):
-        api_key = APP_CONFIG.get("api_key", "")
-        if not api_key:
-            return
-        url = "https://api.deepseek.com/chat/completions"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-        # 让模型参考已有语录风格，生成不重复的新语录
-        sample = "\n".join(self.existing_quotes[-5:]) if self.existing_quotes else "（暂无）"
-        system_prompt = (
-            "你叫李彤彤，是累累的女朋友（桌面宠物形态），爱撒娇、关心、俏皮，称呼他为'累累'。"
-            "请生成8句你平时会主动对累累说的闲聊短句（比如撒娇、关心、吐槽、求关注），每句不超过25个字。"
-            "只输出短句本身，每句一行，不要编号、不要引号、不要解释。\n"
-            f"以下是已有语录供参考风格（不要重复这些）：\n{sample}"
-        )
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [{"role": "system", "content": system_prompt}]
-        }
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            content = data['choices'][0]['message']['content'].strip()
-            # 按行拆分，清理每行
-            lines = [ln.strip().lstrip('0123456789.-、） ') for ln in content.splitlines() if ln.strip()]
-            # 过滤太长/太短的
-            new_quotes = [ln for ln in lines if 3 <= len(ln) <= 40]
-            if new_quotes:
-                self.quotes_ready.emit(new_quotes)
-        except Exception as e:
-            print("QuoteGen error:", e)
 
 class DialogBubble(QWidget):
     def __init__(self, parent=None):
@@ -978,6 +271,14 @@ class Pet(QWidget):
         self.is_sleeping = False
         self.walk_direction = 1
         
+        # Initialize MemoryManager before WebServer
+        db_path = os.path.join(get_data_dir(), "memory.db")
+        self.memory_manager = MemoryManager(db_path)
+        
+        self.tts_thread = None
+        self.web_server_thread = WebServerThread(self.memory_manager, port=5050, parent=self)
+        self.web_server_thread.start()
+        
         self.initUI()
         
         self.action_timer = QTimer(self)
@@ -1008,8 +309,13 @@ class Pet(QWidget):
         self._idle_count = 0
         self._quote_gen_thread = None
         
+        self.companion_thread = None
+        self.event_manager = EventManager()
+        self.event_manager.companion_event_ready.connect(self.trigger_companion_chat)
+        
         self.chat_thread = ChatThread(self)
         self.chat_thread.reply_ready.connect(self.on_chat_reply)
+        self.chat_thread.reminder_ready.connect(self.schedule_reminder)
         
         self.idle_timer = QTimer(self)
         self.idle_timer.timeout.connect(self.trigger_idle_chat)
@@ -1126,6 +432,12 @@ class Pet(QWidget):
             self.dialog_bubble.move(bubble_x, bubble_y)
             
     def on_chat_reply(self, text):
+        emotion = "normal"
+        match_emotion = re.search(r'\[EMOTION:([a-zA-Z]+)\]', text)
+        if match_emotion:
+            emotion = match_emotion.group(1).lower()
+            text = text.replace(match_emotion.group(0), "").strip()
+
         match = re.search(r'\[REMINDER:(\d+):(.*?)\]', text)
         if match:
             try:
@@ -1137,6 +449,24 @@ class Pet(QWidget):
                 pass
                 
         if text:
+            if emotion != "normal":
+                self.trigger_emotion_animation(emotion)
+                
+            rate = "+0%"
+            pitch = "+0Hz"
+            if emotion == "happy":
+                rate = "+10%"
+                pitch = "+10Hz"
+            elif emotion == "sleepy":
+                rate = "-20%"
+                pitch = "-10Hz"
+            elif emotion == "angry":
+                rate = "+0%"
+                pitch = "-10Hz"
+            elif emotion == "surprised":
+                rate = "+10%"
+                pitch = "+20Hz"
+
             # 自动保存短句到语录库（去掉提醒标记后的纯文本，长度合理才存）
             clean = text.strip()
             if 3 <= len(clean) <= 40 and clean not in self.saved_quotes:
@@ -1150,15 +480,53 @@ class Pet(QWidget):
                     pass
             if APP_CONFIG.get("enable_voice", True):
                 voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-                self.tts_thread = TTSThread(text, voice=voice_id, parent=self)
+                self.tts_thread = TTSThread(text, voice=voice_id, rate=rate, pitch=pitch, parent=self)
                 self.tts_thread.ready_signal.connect(lambda audio_file, txt=text: self.play_tts_and_show_bubble(txt, audio_file))
                 self.tts_thread.start()
             else:
                 duration = max(3000, len(text) * 200) # dynamic duration based on length
                 self.show_bubble(text, duration)
 
+    def trigger_emotion_animation(self, emotion):
+        if emotion == "happy":
+            self.anim = QPropertyAnimation(self, b"pos")
+            self.anim.setDuration(400)
+            self.anim.setStartValue(self.pos())
+            self.anim.setKeyValueAt(0.25, self.pos() - QPoint(0, 30))
+            self.anim.setKeyValueAt(0.5, self.pos())
+            self.anim.setKeyValueAt(0.75, self.pos() - QPoint(0, 30))
+            self.anim.setEndValue(self.pos())
+            self.anim.start()
+        elif emotion == "sleepy":
+            self.spawn_sleep_particle()
+            self.anim = QPropertyAnimation(self, b"pos")
+            self.anim.setDuration(1000)
+            self.anim.setStartValue(self.pos())
+            self.anim.setKeyValueAt(0.5, self.pos() + QPoint(0, 10))
+            self.anim.setEndValue(self.pos())
+            self.anim.start()
+        elif emotion == "angry":
+            self.anim = QPropertyAnimation(self, b"pos")
+            self.anim.setDuration(300)
+            self.anim.setStartValue(self.pos())
+            self.anim.setKeyValueAt(0.2, self.pos() + QPoint(10, 0))
+            self.anim.setKeyValueAt(0.4, self.pos() - QPoint(10, 0))
+            self.anim.setKeyValueAt(0.6, self.pos() + QPoint(10, 0))
+            self.anim.setKeyValueAt(0.8, self.pos() - QPoint(10, 0))
+            self.anim.setEndValue(self.pos())
+            self.anim.start()
+        elif emotion == "surprised":
+            self.anim = QPropertyAnimation(self, b"pos")
+            self.anim.setDuration(300)
+            self.anim.setStartValue(self.pos())
+            self.anim.setKeyValueAt(0.3, self.pos() - QPoint(0, 50))
+            self.anim.setEndValue(self.pos())
+            self.anim.setEasingCurve(QEasingCurve.OutElastic)
+            self.anim.start()
+
     def play_tts_and_show_bubble(self, text, audio_file):
         self.show_bubble(text, duration=0) # Keeps open until audio finishes
+        self.current_audio_file = audio_file
         try:
             import pygame
             pygame.mixer.init()
@@ -1178,23 +546,36 @@ class Pet(QWidget):
     def check_audio_status(self):
         try:
             import pygame
+            import os
             if not pygame.mixer.music.get_busy():
                 self.audio_check_timer.stop()
                 self.dialog_bubble.hide()
+                try:
+                    pygame.mixer.music.unload()
+                except Exception:
+                    pass
+                if hasattr(self, 'current_audio_file') and os.path.exists(self.current_audio_file):
+                    try:
+                        os.remove(self.current_audio_file)
+                    except Exception as e:
+                        print(f"Failed to delete temp audio {self.current_audio_file}: {e}")
         except:
             if hasattr(self, 'audio_check_timer'):
                 self.audio_check_timer.stop()
             self.dialog_bubble.hide()
 
-    def trigger_reminder(self, msg):
+    def schedule_reminder(self, seconds, msg):
+        QTimer.singleShot(seconds * 1000, lambda m=msg: self.trigger_reminder(m))
+
+    def trigger_reminder(self, message):
         if APP_CONFIG.get("enable_voice", True):
             voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-            self.tts_thread = TTSThread(msg, voice=voice_id, parent=self)
-            self.tts_thread.ready_signal.connect(lambda audio_file, txt=msg: self.play_tts_and_show_bubble(txt, audio_file))
+            self.tts_thread = TTSThread(message, voice=voice_id, parent=self)
+            self.tts_thread.ready_signal.connect(lambda audio_file, txt=message: self.play_tts_and_show_bubble(txt, audio_file))
             self.tts_thread.start()
         else:
-            duration = max(3000, len(msg) * 200)
-            self.show_bubble(msg, duration)
+            duration = max(3000, len(message) * 200)
+            self.show_bubble(message, duration)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -1376,56 +757,25 @@ class Pet(QWidget):
             if not current_music and playing_pid:
                 current_music = get_title_from_pid(playing_pid)
             
-            import time
-            if not hasattr(self, 'last_music_info'):
-                self.last_music_info = current_music
-                self.last_music_proactive_time = 0
-                
-            print(f"[DEBUG] playing={playing}, current_music='{current_music}', last_music_info='{self.last_music_info}'")
-                
-            if playing and current_music and current_music != self.last_music_info:
-                if time.time() - self.last_music_proactive_time > 15:
-                    self.last_music_proactive_time = time.time()
-                    self.last_music_info = current_music
-                    print("[DEBUG] Triggering chat thread!")
-                    # 若用户正在对话（chat_thread 运行中），跳过切歌评论避免抢占
-                    if self.chat_thread is not None and self.chat_thread.isRunning():
-                        print("[DEBUG] chat_thread running, skip music proactive")
-                    else:
-                        # 拆分歌名和歌手，避免模型把歌手名当歌名
-                        parts = current_music.split(" - ", 1)
-                        if len(parts) == 2:
-                            song_name, artist_name = parts[0], parts[1]
-                            music_desc = f"歌曲《{song_name}》，歌手是{artist_name}"
-                        else:
-                            music_desc = f"歌曲《{current_music}》"
-                        prompt = f"（系统后台提示：累累切歌了，当前正在听{music_desc}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
-                        self.chat_thread = ChatThread(self)
-                        self.chat_thread.prompt = prompt
-                        self.chat_thread.reply_ready.connect(self.on_chat_reply)
-                        self.chat_thread.start()
-                else:
-                    self.last_music_info = current_music
+            self.event_manager.update_music(current_music)
+            
         except Exception as e:
             print(f"[DEBUG] Exception in check_music: {e}")
 
     def proactive_observe(self):
         active_window = get_active_window_title()
-        if not active_window: return
+        self.event_manager.update_window(active_window)
         
-        if active_window != self.last_active_window:
-            self.last_active_window = active_window
-            import time
-            if time.time() - self.last_proactive_time > 60:
-                self.last_proactive_time = time.time()
-                # 若用户正在对话（chat_thread 运行中），跳过主动评论避免抢占
-                if self.chat_thread is not None and self.chat_thread.isRunning():
-                    return
-                prompt = f"（系统后台提示：累累当前主动打开了新软件 '{active_window}'。请你主动发一两句话关心他或撒娇吐槽，不要太长，假装是你自己不经意看到的，不要提系统后台。）"
-                self.chat_thread = ChatThread(self)
-                self.chat_thread.prompt = prompt
-                self.chat_thread.reply_ready.connect(self.on_chat_reply)
-                self.chat_thread.start()
+    def trigger_companion_chat(self, event_data):
+        print(f"[DEBUG] Triggering companion chat: {event_data['event']}")
+        if self.chat_thread is not None and self.chat_thread.isRunning():
+            return
+        if self.companion_thread is not None and self.companion_thread.isRunning():
+            return
+            
+        self.companion_thread = CompanionThread(event_data, self)
+        self.companion_thread.reply_ready.connect(self.on_chat_reply)
+        self.companion_thread.start()
         
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -1463,7 +813,7 @@ class Pet(QWidget):
         top_action.triggered.connect(self.toggle_top)
         
         exit_action = QAction("退出程序", self)
-        exit_action.triggered.connect(QApplication.instance().quit)
+        exit_action.triggered.connect(self.quit_app)
         
         menu.addAction(chat_action)
         menu.addAction(pat_action)
@@ -1502,8 +852,13 @@ class Pet(QWidget):
         self.input_bubble.show_input(QPoint(x_pos, y_pos))
 
     def show_settings(self):
-        dialog = SettingsDialog(self)
-        dialog.exec_()
+        webbrowser.open('http://localhost:5050')
+
+    def quit_app(self):
+        if hasattr(self, 'web_server_thread') and self.web_server_thread:
+            self.web_server_thread.stop()
+            self.web_server_thread.wait(2000)
+        QApplication.instance().quit()
 
     def action_pat_head(self):
         self.show_bubble("嘿嘿，好舒服~")

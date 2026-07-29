@@ -17,3 +17,7 @@ env/
 *.db
 *.dat
 generated-images/
+
+data/
+models/
+test_*.py
