@@ -428,7 +428,16 @@ class Pet(QWidget):
         self.progress_dialog.close()
         import subprocess
         if sys.platform == 'win32':
-            os.startfile(file_path)
+            import tempfile
+            bat_path = os.path.join(tempfile.gettempdir(), "update_launcher.bat")
+            with open(bat_path, "w", encoding="utf-8") as f:
+                f.write('@echo off\n')
+                f.write('timeout /t 3 /nobreak > NUL\n')
+                f.write(f'start "" "{file_path}"\n')
+                f.write('del "%~f0"\n')
+            
+            DETACHED_PROCESS = 0x00000008
+            subprocess.Popen([bat_path], creationflags=DETACHED_PROCESS, close_fds=True)
         elif sys.platform == 'darwin':
             subprocess.run(['open', file_path])
         QApplication.quit()
