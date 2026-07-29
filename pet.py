@@ -78,7 +78,7 @@ def get_active_window_title():
             return ""
     return ""
 
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
 
@@ -746,41 +746,79 @@ class DialogBubble(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        
+
         self.label = QLabel(self)
         self.label.setStyleSheet("""
             QLabel {
                 background-color: rgba(255, 255, 255, 200);
                 border: 2px solid #ffb6c1;
                 border-radius: 10px;
-                padding: 5px;
                 color: #333333;
             }
         """)
         self.label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setWordWrap(True)
-        self.label.setMaximumWidth(400)
-        
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.hide)
         self.hide()
 
+    def resizeEvent(self, event):
+        # label 充满整个 DialogBubble（padding 由 label 的 margin 控制）
+        self.label.setGeometry(0, 0, self.width(), self.height())
+        super().resizeEvent(event)
+
     def show_text(self, text, pos, duration=3000):
         self.label.setText(text)
+        self.label.setWordWrap(True)
+
+        # 获取宠物所在屏幕（双屏安全：用宠物中心点，回退到主屏）
+        pet_center = QPoint(pos.x(), pos.y())
+        screen = QApplication.screenAt(pet_center)
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        screen_rect = screen.availableGeometry()
+        max_w = int(screen_rect.width() * 0.6)
+
+        # 让 QLabel 自己算尺寸，不用 QFontMetrics
+        self.label.setMaximumWidth(max_w)
         self.label.adjustSize()
-        self.resize(self.label.size())
-        
-        bubble_x = pos.x() - self.width() // 2
-        bubble_y = pos.y() - self.height() - 10
-        
-        # Prevent overflow
-        screen_rect = QApplication.desktop().availableGeometry(self)
-        if bubble_x < screen_rect.left(): bubble_x = screen_rect.left()
-        if bubble_x + self.width() > screen_rect.right(): bubble_x = screen_rect.right() - self.width()
-        if bubble_y < screen_rect.top(): bubble_y = screen_rect.top()
-        if bubble_y + self.height() > screen_rect.bottom(): bubble_y = screen_rect.bottom() - self.height()
-        
+        hint = self.label.sizeHint()
+        bubble_w = hint.width()
+        bubble_h = hint.height()
+
+        self.resize(bubble_w, bubble_h)
+
+        screen_left = screen_rect.left()
+        screen_right = screen_rect.right()
+        screen_top = screen_rect.top()
+        screen_bottom = screen_rect.bottom()
+
+        pet_x = pos.x()
+        pet_y = pos.y()
+
+        # 默认气泡居中于宠物上方
+        bubble_x = pet_x - bubble_w // 2
+        bubble_y = pet_y - bubble_h - 10
+
+        # 若气泡会溢出右侧，改为在宠物左侧显示
+        if bubble_x + bubble_w > screen_right:
+            bubble_x = pet_x - bubble_w  # 气泡右边贴着宠物，向左展开
+        # 若气泡会溢出左侧，改为在宠物右侧显示
+        elif bubble_x < screen_left:
+            bubble_x = pet_x  # 气泡左边贴着宠物，向右展开
+
+        # 最终兜底：确保不越界
+        if bubble_x < screen_left:
+            bubble_x = screen_left
+        if bubble_x + bubble_w > screen_right:
+            bubble_x = screen_right - bubble_w
+        if bubble_y < screen_top:
+            bubble_y = screen_top
+        if bubble_y + bubble_h > screen_bottom:
+            bubble_y = screen_bottom - bubble_h
+
         self.move(bubble_x, bubble_y)
         self.show()
         if duration > 0:
@@ -1064,8 +1102,27 @@ class Pet(QWidget):
             
         if not self.dialog_bubble.isHidden():
             center_x = self.pos().x() + self.width() // 2
-            bubble_x = center_x - self.dialog_bubble.width() // 2
-            bubble_y = self.pos().y() - self.dialog_bubble.height() - 10
+            center_y = self.pos().y() + self.height() // 2
+            bubble_w = self.dialog_bubble.width()
+            bubble_h = self.dialog_bubble.height()
+            bubble_x = center_x - bubble_w // 2
+            bubble_y = self.pos().y() - bubble_h - 10
+            # 屏幕边界避让：用宠物中心所在屏幕（双屏安全）
+            pet_center = QPoint(center_x, center_y)
+            screen = QApplication.screenAt(pet_center) or QApplication.primaryScreen()
+            screen_rect = screen.availableGeometry()
+            if bubble_x + bubble_w > screen_rect.right():
+                bubble_x = self.pos().x() - bubble_w
+            elif bubble_x < screen_rect.left():
+                bubble_x = self.pos().x() + self.width()
+            if bubble_x < screen_rect.left():
+                bubble_x = screen_rect.left()
+            if bubble_x + bubble_w > screen_rect.right():
+                bubble_x = screen_rect.right() - bubble_w
+            if bubble_y < screen_rect.top():
+                bubble_y = screen_rect.top()
+            if bubble_y + bubble_h > screen_rect.bottom():
+                bubble_y = screen_rect.bottom() - bubble_h
             self.dialog_bubble.move(bubble_x, bubble_y)
             
     def on_chat_reply(self, text):
@@ -1335,7 +1392,14 @@ class Pet(QWidget):
                     if self.chat_thread is not None and self.chat_thread.isRunning():
                         print("[DEBUG] chat_thread running, skip music proactive")
                     else:
-                        prompt = f"（系统后台提示：累累切歌了，当前正在听 {current_music}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
+                        # 拆分歌名和歌手，避免模型把歌手名当歌名
+                        parts = current_music.split(" - ", 1)
+                        if len(parts) == 2:
+                            song_name, artist_name = parts[0], parts[1]
+                            music_desc = f"歌曲《{song_name}》，歌手是{artist_name}"
+                        else:
+                            music_desc = f"歌曲《{current_music}》"
+                        prompt = f"（系统后台提示：累累切歌了，当前正在听{music_desc}。请主动发一两句话关心他或评价这首歌，不要太长，假装是你自己不经意听到的，不要提系统后台。）"
                         self.chat_thread = ChatThread(self)
                         self.chat_thread.prompt = prompt
                         self.chat_thread.reply_ready.connect(self.on_chat_reply)
