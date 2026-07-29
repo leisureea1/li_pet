@@ -6,5 +6,6 @@
   "calculator": true,
   "memory": true,
   "system": true,
-  "pet_state": true
+  "pet_state": true,
+  "bill_insight": true
 }

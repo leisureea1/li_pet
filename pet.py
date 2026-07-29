@@ -593,28 +593,24 @@ class Pet(QWidget):
             if os.path.isfile(file_path):
                 try:
                     ext = os.path.splitext(file_path)[1].lower()
-                    if ext in ['.xlsx', '.xls']:
-                        import openpyxl
-                        wb = openpyxl.load_workbook(file_path, data_only=True)
-                        sheet = wb.active
-                        content = ""
-                        for row in sheet.iter_rows(values_only=True):
-                            if len(content) > 8000:
-                                content += "\n...(内容过长，为保护彤彤的大脑已自动截断最末尾部分)"
-                                break
-                            content += ",".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
-                        prompt = f"累累刚才拖拽丢给我了一份 Excel 文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。如果是账单或报表，请务必帮他仔细分析一下消费习惯、经常光顾的店铺等细节。"
+                    if ext in ['.xlsx', '.xls', '.csv']:
+                        # Delegate to bill_insight skill
+                        prompt = (
+                            f"累累刚才拖拽丢给我了一份账单文件，路径是：{file_path}。\n"
+                            "请你立刻调用 `bill_insight` 技能来详细分析这份文件。\n"
+                            "【重要要求】技能返回数据后，请务必用小管家/女朋友的撒娇口吻给他汇报。不要干瘪地念数字，要像这样俏皮：\n"
+                            "『[EMOTION:happy] 累累～我偷看了你的账单，你居然是个干饭人！...』"
+                        )
+                        self.chat_thread.send_message(prompt)
+                        self.show_bubble("正在像小管家一样仔细核对你的账单哦...")
                     else:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read(8000)
                         if len(content) >= 8000:
                             content += "\n...(内容过长已截断)"
                         prompt = f"累累刚才拖拽丢给我了一份文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。"
-                        
-                    self.chat_thread.send_message(prompt)
-                    self.show_bubble("正在努力看你给我的文件哦...")
-                except ImportError:
-                    self.show_bubble("哎呀，彤彤需要安装 openpyxl 才能看懂 Excel 呢~")
+                        self.chat_thread.send_message(prompt)
+                        self.show_bubble("正在看你给我的文件哦...")
                 except Exception as e:
                     print(e)
                     self.show_bubble("这个文件彤彤看不懂啦~")
