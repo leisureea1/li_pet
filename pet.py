@@ -589,12 +589,29 @@ class Pet(QWidget):
             file_path = urls[0].toLocalFile()
             if os.path.isfile(file_path):
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read(2000)
-                    prompt = f"累累刚才拖拽丢给我了一份文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。"
+                    ext = os.path.splitext(file_path)[1].lower()
+                    if ext in ['.xlsx', '.xls']:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(file_path, data_only=True)
+                        sheet = wb.active
+                        content = ""
+                        for i, row in enumerate(sheet.iter_rows(values_only=True)):
+                            if i > 50:
+                                content += "\n...(内容过长已截断)"
+                                break
+                            content += ",".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
+                        prompt = f"累累刚才拖拽丢给我了一份 Excel 文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。如果像是账单或报表，可以帮他简单分析一下。"
+                    else:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read(2000)
+                        prompt = f"累累刚才拖拽丢给我了一份文件，文件名是 {os.path.basename(file_path)}，部分内容如下：\n{content}\n请你结合这份文件对累累说点什么吧。"
+                        
                     self.chat_thread.send_message(prompt)
-                    self.show_bubble("正在看你给我的文件哦...")
-                except Exception:
+                    self.show_bubble("正在努力看你给我的文件哦...")
+                except ImportError:
+                    self.show_bubble("哎呀，彤彤需要安装 openpyxl 才能看懂 Excel 呢~")
+                except Exception as e:
+                    print(e)
                     self.show_bubble("这个文件彤彤看不懂啦~")
 
     def trigger_idle_chat(self):

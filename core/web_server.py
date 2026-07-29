@@ -563,6 +563,11 @@ HTML_CONTENT = """
                 const roleName = isUser ? '累累' : '彤彤';
                 const dateStr = new Date(item.timestamp).toLocaleString();
                 
+                let contentText = item.content;
+                if (!isUser) {
+                    contentText = contentText.replace(/\[EMOTION:[a-zA-Z]+\]\s*/g, '');
+                }
+                
                 let tokenHtml = '';
                 if (!isUser && item.total_tokens > 0) {
                     tokenHtml = `<div class="history-tokens">消耗: ${item.total_tokens} Tokens (提示:${item.prompt_tokens} 返回:${item.completion_tokens})</div>`;
@@ -574,7 +579,7 @@ HTML_CONTENT = """
                             <span class="history-role">${roleName}</span>
                             <span>${dateStr}</span>
                         </div>
-                        <div class="history-content">${item.content}</div>
+                        <div class="history-content">${contentText}</div>
                         ${tokenHtml}
                     </div>
                 `;
