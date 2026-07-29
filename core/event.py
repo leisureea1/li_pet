@@ -70,6 +70,10 @@ class EventManager(QObject):
     def update_music(self, current_music):
         now = time.time()
         
+        # 过滤掉由于 API 延迟导致 fallback 读取到播放器纯名称的情况，防止频繁触发切歌
+        if current_music and current_music.strip() in ["网易云音乐", "QQ音乐", "Spotify", "Spotify Free", "Spotify Premium", "酷狗音乐", "酷我音乐", "Apple Music"]:
+            return
+            
         # 更新音乐状态
         if current_music != self.state["music"]["title"]:
             self.state["music"]["title"] = current_music or ""
