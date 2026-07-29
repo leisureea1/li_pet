@@ -13,3 +13,4 @@ tokenizers
 
 openpyxl
 xlrd
+pandas
