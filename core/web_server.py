@@ -565,7 +565,7 @@ HTML_CONTENT = """
                 
                 let contentText = item.content;
                 if (!isUser) {
-                    contentText = contentText.replace(/\[EMOTION:[a-zA-Z]+\]\s*/g, '');
+                    contentText = contentText.replace(/\\[EMOTION:[a-zA-Z]+\\]\\s*/g, '');
                 }
                 
                 let tokenHtml = '';

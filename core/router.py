@@ -62,6 +62,7 @@ class SemanticRouter:
             
         try:
             self.tokenizer = Tokenizer.from_file(os.path.join(self.model_path, "tokenizer.json"))
+            self.tokenizer.enable_truncation(max_length=512)
             self.session = ort.InferenceSession(os.path.join(self.model_path, "model_quantized.onnx"), providers=['CPUExecutionProvider'])
             
             # 预计算所有锚点的 Embedding
