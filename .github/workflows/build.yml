@@ -86,7 +86,13 @@ jobs:
           mkdir -p dmg_temp
           cp dist/pet dmg_temp/
           ln -s /Applications dmg_temp/Applications
-          hdiutil create -volname "LiTongtongPet" -srcfolder dmg_temp -ov -format UDZO LiTongtong-Apple.dmg
+          SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
+          BUFFERED_SIZE=$(($SIZE_MB + 500))
+          hdiutil create -size ${BUFFERED_SIZE}m -fs HFS+ -volname "LiTongtongPet" temp.dmg
+          hdiutil attach temp.dmg -readwrite -mountpoint /Volumes/LiTongtongPet
+          cp -R dmg_temp/* /Volumes/LiTongtongPet/
+          hdiutil detach /Volumes/LiTongtongPet
+          hdiutil convert temp.dmg -format UDZO -o LiTongtong-Apple.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -125,7 +131,13 @@ jobs:
           mkdir -p dmg_temp
           cp dist/pet dmg_temp/
           ln -s /Applications dmg_temp/Applications
-          hdiutil create -volname "LiTongtongPet" -srcfolder dmg_temp -ov -format UDZO LiTongtong-Intel.dmg
+          SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
+          BUFFERED_SIZE=$(($SIZE_MB + 500))
+          hdiutil create -size ${BUFFERED_SIZE}m -fs HFS+ -volname "LiTongtongPet" temp.dmg
+          hdiutil attach temp.dmg -readwrite -mountpoint /Volumes/LiTongtongPet
+          cp -R dmg_temp/* /Volumes/LiTongtongPet/
+          hdiutil detach /Volumes/LiTongtongPet
+          hdiutil convert temp.dmg -format UDZO -o LiTongtong-Intel.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
