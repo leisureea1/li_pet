@@ -20,7 +20,11 @@ def build_portrait(df, router=None):
         "count": len(night_trades),
         "ratio": round(len(night_trades) / len(df_expense), 2) if len(df_expense) > 0 else 0,
         "is_night_owl": len(night_trades) >= 5, # Threshold for being a night owl
-        "sample_merchants": night_trades['counterparty'].value_counts().head(3).index.tolist() if not night_trades.empty else []
+        "sample_merchants": night_trades['counterparty'].value_counts().head(3).index.tolist() if not night_trades.empty else [],
+        "specific_examples": [
+            f"{row['time'].strftime('%m月%d日 %H:%M')} {row['counterparty']} {row['amount']}元"
+            for _, row in night_trades.sort_values(by='time').tail(3).iterrows()
+        ] if not night_trades.empty else []
     }
     
     # 2. Top Merchants
@@ -56,9 +60,20 @@ def build_portrait(df, router=None):
     cluster_counts = df_expense.groupby(clusters).size()
     impulse_clusters = cluster_counts[cluster_counts >= 5]
     
+    impulse_examples = []
+    if len(impulse_clusters) > 0:
+        # Get transactions from the first impulse cluster
+        first_cluster_id = impulse_clusters.index[0]
+        cluster_trades = df_expense[clusters == first_cluster_id]
+        impulse_examples = [
+            f"{row['time'].strftime('%m月%d日 %H:%M')} {row['counterparty']} {row['amount']}元"
+            for _, row in cluster_trades.head(3).iterrows()
+        ]
+        
     portrait['impulse_buying'] = {
         "detected": len(impulse_clusters) > 0,
-        "episodes": len(impulse_clusters)
+        "episodes": len(impulse_clusters),
+        "specific_examples": impulse_examples
     }
     
     # 5. Game / Top-up Expenses
@@ -69,7 +84,11 @@ def build_portrait(df, router=None):
         portrait['game_expenses'] = {
             "total_spent": float(df_game['amount'].sum()),
             "transaction_count": len(df_game),
-            "favorite_games": df_game['counterparty'].value_counts().head(2).index.tolist()
+            "favorite_games": df_game['counterparty'].value_counts().head(2).index.tolist(),
+            "specific_examples": [
+                f"{row['time'].strftime('%m月%d日 %H:%M')} {row['counterparty']} {row['amount']}元"
+                for _, row in df_game.sort_values(by='amount', ascending=False).head(3).iterrows()
+            ]
         }
         
     # 6. Weekend vs Weekday

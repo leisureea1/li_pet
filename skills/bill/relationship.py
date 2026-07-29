@@ -46,7 +46,8 @@ def analyze_relationships(df):
                 "type": "推诿/抢买单",
                 "loop_count": loops_found,
                 "amount": float(loop_amount),
-                "pattern": f"你们在短时间内为 {loop_amount} 块钱互相转过来转过去，是不是抢着买单呀？"
+                "pattern": f"你们在短时间内为 {loop_amount} 块钱互相转过来转过去，是不是抢着买单呀？",
+                "specific_example": f"比如在 {group.iloc[0]['time'].strftime('%m月%d日 %H:%M')} 左右"
             })
             
         # 2. Detect "Intimate Relationship" (Extremely high frequency transfers)
