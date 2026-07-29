@@ -12,3 +12,4 @@ onnxruntime
 tokenizers
 
 openpyxl
+xlrd

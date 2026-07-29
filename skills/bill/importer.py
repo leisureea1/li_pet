@@ -8,15 +8,19 @@ def load_bill(file_path):
     """
     ext = os.path.splitext(file_path)[1].lower()
     
+    load_method = "excel"
+    
     try:
         if ext in ['.xlsx', '.xls']:
             df = pd.read_excel(file_path)
         else:
             df = pd.read_csv(file_path, encoding='utf-8')
+            load_method = "csv_utf8"
     except Exception as e:
         try:
-            # Fallback for some Chinese CSV encodings
+            # Fallback for some Chinese CSV encodings (including fake xls files)
             df = pd.read_csv(file_path, encoding='gbk')
+            load_method = "csv_gbk"
         except:
             return None
             
@@ -35,13 +39,12 @@ def load_bill(file_path):
                 break
             
     # Re-read with correct header
-    if ext in ['.xlsx', '.xls']:
+    if load_method == "excel":
         df = pd.read_excel(file_path, header=header_idx)
+    elif load_method == "csv_utf8":
+        df = pd.read_csv(file_path, encoding='utf-8', header=header_idx)
     else:
-        try:
-            df = pd.read_csv(file_path, encoding='utf-8', header=header_idx)
-        except:
-            df = pd.read_csv(file_path, encoding='gbk', header=header_idx)
+        df = pd.read_csv(file_path, encoding='gbk', header=header_idx)
             
     # Clean up columns
     df.columns = [str(c).strip().replace('\n', '').replace('\r', '').replace('\ufeff', '') for c in df.columns]
@@ -51,9 +54,11 @@ def load_bill(file_path):
         '交易时间': 'time',
         '付款时间': 'time',
         '交易类型': 'type',
+        '交易分类': 'type',
         '交易对方': 'counterparty',
         '商品': 'product',
         '商品名称': 'product',
+        '商品说明': 'product',
         '收/支': 'io',
         '收/付款': 'io',
         '收/付': 'io',
