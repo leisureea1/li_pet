@@ -36,7 +36,7 @@ class UpdateCheckerThread(QThread):
                 if latest > curr and release_url:
                     self.update_available.emit(latest_version, release_url, assets)
                 else:
-                    self.no_update.emit(latest_version)
+                    self.no_update.emit(self.current_version)
         except Exception as e:
             print(f"[Updater] Update check failed: {e}")
             self.error_occurred.emit(str(e))
