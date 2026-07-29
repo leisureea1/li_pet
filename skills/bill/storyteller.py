@@ -1,6 +1,6 @@
 import json
 
-def format_story_and_memory(stats, portrait, memory_manager):
+def format_story_and_memory(stats, relationships, portrait, memory_manager):
     """
     Formats the raw insights into a storyteller JSON payload for the LLM.
     Also injects high-level findings into the local MemoryManager.
@@ -9,6 +9,7 @@ def format_story_and_memory(stats, portrait, memory_manager):
     llm_payload = {
         "summary": "这是本地系统对累累账单的深度洞察结果。请务必像个懂他的小管家/女朋友一样，用撒娇、俏皮的语气给他汇报，多发掘有趣的细节进行调侃或关心。",
         "basic_stats": stats,
+        "relationships": relationships,
         "behavior_portrait": portrait
     }
     

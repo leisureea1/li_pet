@@ -8,6 +8,7 @@ if skills_dir not in sys.path:
 
 from bill.importer import load_bill
 from bill.analyzer import analyze_basic_stats
+from bill.relationship import analyze_relationships
 from bill.portrait import build_portrait
 from bill.storyteller import format_story_and_memory
 
@@ -39,7 +40,10 @@ def execute(file_path=None, pet_instance=None, memory_manager=None, **kwargs):
         # 2. Extract basic stats
         stats = analyze_basic_stats(df)
         
-        # 3. Extract behavior portrait
+        # 3. Extract relationships (money loops)
+        relationships = analyze_relationships(df)
+        
+        # 4. Extract behavior portrait
         router = getattr(pet_instance, 'event_manager', None)
         if router and hasattr(router, 'router'):
             router = router.router # Attempt to grab the semantic router instance from pet.py event_manager
@@ -48,8 +52,13 @@ def execute(file_path=None, pet_instance=None, memory_manager=None, **kwargs):
             
         portrait = build_portrait(df, router=router)
         
-        # 4. Format to JSON and inject memory
-        story_payload = format_story_and_memory(stats, portrait, memory_manager)
+        # 5. Format to JSON and inject memory
+        story_payload = format_story_and_memory(stats, relationships, portrait, memory_manager)
+        
+        # [DEBUG] Print the generated JSON for the user to inspect
+        print("====== [DEBUG] BILL INSIGHT LOCAL JSON PAYLOAD ======")
+        print(story_payload)
+        print("=====================================================")
         
         return {
             "success": True, 
