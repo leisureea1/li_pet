@@ -18,18 +18,19 @@ import psutil
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInputDialog, QLineEdit, QPushButton, QHBoxLayout, QDialog, QFormLayout, QCheckBox, QVBoxLayout, QMessageBox, QComboBox, QSizePolicy, QProgressDialog
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
 
 from core.utils import get_resource_dir, get_data_dir, get_active_window_title, get_title_from_pid, get_current_music_info_sync, load_encrypted_json, save_encrypted_json
-from core.config import APP_CONFIG, save_config, set_autostart
+from core.config import APP_CONFIG, save_config, set_autostart, CURRENT_VERSION
 from core.chat import TTSThread, ChatThread, QuoteGenThread
 from core.companion import CompanionThread
 from core.event import EventManager
 from core.memory import MemoryManager
 from core.skill_manager import SkillManager
 from core.web_server import WebServerThread
+from core.updater import UpdateCheckerThread
 import webbrowser
 
 
@@ -276,7 +277,7 @@ class Pet(QWidget):
         self.memory_manager = MemoryManager(db_path)
         
         self.tts_thread = None
-        self.web_server_thread = WebServerThread(self.memory_manager, port=5050, parent=self)
+        self.web_server_thread = WebServerThread(self.memory_manager, port=5050, parent=self, update_callback=self.manual_check_update)
         self.web_server_thread.start()
         
         self.initUI()
@@ -333,6 +334,107 @@ class Pet(QWidget):
         self.music_timer = QTimer(self)
         self.music_timer.timeout.connect(self.check_music)
         self.music_timer.start(2000)
+
+        # Update checker
+        self.updater_thread = UpdateCheckerThread(CURRENT_VERSION, parent=self)
+        self.updater_thread.update_available.connect(self.on_update_available)
+        self.updater_thread.no_update.connect(self.on_no_update)
+        self.updater_thread.error_occurred.connect(self.on_update_error)
+        # Delay the update check slightly to not block startup
+        QTimer.singleShot(3000, self.updater_thread.start)
+
+    def manual_check_update(self):
+        self.updater_thread.is_manual = True
+        self.updater_thread.start()
+        
+    def on_no_update(self, version):
+        if self.updater_thread.is_manual:
+            QMessageBox.information(self, "检查更新", f"当前已经是最新版本 {version} 啦！")
+            
+    def on_update_error(self, error):
+        if self.updater_thread.is_manual:
+            QMessageBox.warning(self, "检查更新", f"检查更新失败：{error}")
+
+    def on_update_available(self, version, url, assets):
+        import platform
+        
+        target_name = ""
+        if sys.platform == 'win32':
+            target_name = "LiTongtong_Setup.exe"
+        elif sys.platform == 'darwin':
+            if platform.machine() == 'arm64':
+                target_name = "LiTongtong-Apple.dmg"
+            else:
+                target_name = "LiTongtong-Intel.dmg"
+                
+        download_url = None
+        for asset in assets:
+            if asset.get('name') == target_name:
+                download_url = asset.get('browser_download_url')
+                break
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("发现新版本")
+        if download_url:
+            msg.setText(f"发现新版本 {version}，是否立即更新？")
+            msg.button(QMessageBox.Yes).setText("立即更新")
+        else:
+            msg.setText(f"发现新版本 {version}，是否前往下载更新？")
+            msg.button(QMessageBox.Yes).setText("前往下载")
+            
+        msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.button(QMessageBox.No).setText("暂不更新")
+        msg.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
+        
+        if msg.exec_() == QMessageBox.Yes:
+            if download_url:
+                self.start_download(download_url, target_name)
+            else:
+                import webbrowser
+                webbrowser.open(url)
+
+    def start_download(self, url, filename):
+        import tempfile
+        self.download_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        self.progress_dialog = QProgressDialog("正在下载更新...", "取消", 0, 100, self)
+        self.progress_dialog.setWindowTitle("自动更新")
+        self.progress_dialog.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(True)
+        
+        from core.updater import FileDownloaderThread
+        self.downloader = FileDownloaderThread(url, self.download_path, parent=self)
+        self.downloader.progress.connect(self.on_download_progress)
+        self.downloader.finished.connect(self.on_download_finished)
+        self.downloader.error.connect(self.on_download_error)
+        
+        self.progress_dialog.canceled.connect(self.downloader.cancel)
+        
+        self.downloader.start()
+        self.progress_dialog.show()
+        
+    def on_download_progress(self, downloaded, total):
+        if total > 0:
+            percentage = int((downloaded / total) * 100)
+            self.progress_dialog.setValue(percentage)
+            mb_dl = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.progress_dialog.setLabelText(f"正在下载更新... ({mb_dl:.1f}MB / {mb_total:.1f}MB)")
+            
+    def on_download_finished(self, file_path):
+        self.progress_dialog.close()
+        import subprocess
+        if sys.platform == 'win32':
+            os.startfile(file_path)
+        elif sys.platform == 'darwin':
+            subprocess.run(['open', file_path])
+        QApplication.quit()
+        
+    def on_download_error(self, error_msg):
+        self.progress_dialog.close()
+        QMessageBox.warning(self, "更新失败", f"下载失败: {error_msg}\n请稍后重试或手动前往官网下载。")
 
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)

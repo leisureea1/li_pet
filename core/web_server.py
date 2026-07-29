@@ -2,7 +2,7 @@ import json
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from PyQt5.QtCore import QThread
-from .config import APP_CONFIG, save_config, set_autostart
+from .config import APP_CONFIG, save_config, set_autostart, CURRENT_VERSION
 
 HTML_CONTENT = """
 <!DOCTYPE html>
@@ -379,7 +379,14 @@ HTML_CONTENT = """
                     <label for="enable_voice" style="margin:0;">允许彤彤说话</label>
                 </div>
 
-                <button class="btn-primary" onclick="saveSettings()">保存配置 💖</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; border-top: 1px solid var(--glass-border); padding-top: 1rem;">
+                    <div style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">
+                        当前版本：<span id="current-version" style="color: var(--primary);">v1.0.0</span>
+                    </div>
+                    <button class="btn-primary" style="margin-top: 0; padding: 8px 16px; background: var(--secondary);" onclick="checkUpdate()">检查更新</button>
+                </div>
+
+                <button class="btn-primary" style="width: 100%; margin-top: 1rem;" onclick="saveSettings()">保存配置 💖</button>
             </div>
 
             <!-- Stats Panel -->
@@ -449,10 +456,16 @@ HTML_CONTENT = """
             }
         }
 
-        function showToast() {
+        function showToast(msg="✅ 保存成功！彤彤记住了哦~") {
             const toast = document.getElementById('toast');
+            toast.innerText = msg;
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        async function checkUpdate() {
+            await fetch('/api/check_update', { method: 'POST' });
+            showToast("正在检查更新，请查看宠物提示框...");
         }
 
         async function loadSettings() {
@@ -463,6 +476,7 @@ HTML_CONTENT = """
             document.getElementById('tts_voice').value = data.tts_voice || 'zh-CN-XiaoxiaoNeural';
             document.getElementById('autostart').checked = !!data.autostart;
             document.getElementById('enable_voice').checked = data.enable_voice !== false;
+            document.getElementById('current-version').innerText = data.current_version || '';
         }
 
         async function saveSettings() {
@@ -594,6 +608,7 @@ HTML_CONTENT = """
 
 class SettingsRequestHandler(BaseHTTPRequestHandler):
     memory_manager = None
+    trigger_update_check_callback = None
     
     def log_message(self, format, *args):
         pass # 禁用默认日志
@@ -608,7 +623,9 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
             self.end_headers()
-            self.wfile.write(json.dumps(APP_CONFIG).encode('utf-8'))
+            resp_data = APP_CONFIG.copy()
+            resp_data['current_version'] = CURRENT_VERSION
+            self.wfile.write(json.dumps(resp_data).encode('utf-8'))
         elif self.path == '/api/stats':
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
@@ -645,16 +662,25 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json; charset=utf-8')
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+        elif self.path == '/api/check_update':
+            if hasattr(self, 'trigger_update_check_callback') and self.trigger_update_check_callback:
+                self.trigger_update_check_callback()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True}).encode('utf-8'))
 
 class WebServerThread(QThread):
-    def __init__(self, memory_manager, port=5050, parent=None):
+    def __init__(self, memory_manager, port=5050, parent=None, update_callback=None):
         super().__init__(parent)
         self.port = port
         self.memory_manager = memory_manager
         self.server = None
+        self.update_callback = update_callback
         
     def run(self):
         SettingsRequestHandler.memory_manager = self.memory_manager
+        SettingsRequestHandler.trigger_update_check_callback = self.update_callback
         self.server = HTTPServer(('127.0.0.1', self.port), SettingsRequestHandler)
         print(f"[DEBUG] Web server started at http://127.0.0.1:{self.port}")
         self.server.serve_forever()
