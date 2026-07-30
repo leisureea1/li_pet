@@ -15,3 +15,7 @@ openpyxl
 xlrd
 pandas
 pywin32; sys_platform == 'win32'
+mss
+pillow
+paddleocr
+paddlepaddle

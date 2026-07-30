@@ -124,7 +124,19 @@ class ChatThread(QThread):
         }
         
         history = self.memory_manager.get_recent_working_memory()
-        current_messages = [system_msg] + history
+        
+        # DeepSeek API 严格要求历史记录（除 system 外）必须以 user 开头，且不能有连续的 assistant 消息
+        sanitized_history = []
+        for msg in history:
+            if not sanitized_history and msg["role"] == "assistant":
+                continue  # 丢弃开头的 assistant
+            if sanitized_history and sanitized_history[-1]["role"] == "assistant" and msg["role"] == "assistant":
+                # 合并连续的 assistant 消息
+                sanitized_history[-1]["content"] += "\n" + msg["content"]
+            else:
+                sanitized_history.append(msg)
+                
+        current_messages = [system_msg] + sanitized_history
         
         if self.is_idle:
             current_messages.append({"role": "user", "content": "（累累很久没理你了，你现在在想什么？主动跟他说一句话吧，要符合你的角色设定，不超过15个字）"})
@@ -158,7 +170,8 @@ class ChatThread(QThread):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "search"}}
                 elif intent == "app_usage" and any(t["function"]["name"] == "app_usage" for t in tools_schema):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "app_usage"}}
-
+                elif intent == "ocr" and any(t["function"]["name"] == "ocr" for t in tools_schema):
+                    payload["tool_choice"] = {"type": "function", "function": {"name": "ocr"}}
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=20)
             response.raise_for_status()
@@ -233,6 +246,8 @@ class ChatThread(QThread):
         except Exception as e:
             self.reply_ready.emit("呜呜，网络不通畅，我想不出来了...")
             print("API Error:", e)
+            if hasattr(e, 'response') and e.response is not None:
+                print("Response Body:", e.response.text)
 
     def save_extracted_memories(self, memories):
         for mem in memories:

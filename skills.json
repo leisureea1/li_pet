@@ -8,5 +8,6 @@
   "system": true,
   "pet_state": true,
   "bill_insight": true,
-  "app_usage": true
+  "app_usage": true,
+  "ocr": true
 }
