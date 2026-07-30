@@ -170,8 +170,8 @@ class ChatThread(QThread):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "search"}}
                 elif intent == "app_usage" and any(t["function"]["name"] == "app_usage" for t in tools_schema):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "app_usage"}}
-                elif intent == "ocr" and any(t["function"]["name"] == "ocr" for t in tools_schema):
-                    payload["tool_choice"] = {"type": "function", "function": {"name": "ocr"}}
+                else:
+                    payload["tool_choice"] = "auto"
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=20)
             response.raise_for_status()

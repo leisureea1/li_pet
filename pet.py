@@ -4,7 +4,6 @@ import sys
 import os
 import threading
 import skills.voice_input as voice_skill
-from ocr import recognize
 
 try:
     import onnxruntime

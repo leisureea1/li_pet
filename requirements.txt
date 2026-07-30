@@ -17,10 +17,6 @@ pandas
 pywin32; sys_platform == 'win32'
 mss
 pillow
-paddleocr
-paddlepaddle
 faster-whisper
 sounddevice
 scipy
-paddlex[ocr]
-lxml
