@@ -3,6 +3,9 @@ from datetime import datetime
 import sys
 import os
 import threading
+import skills.voice_input as voice_skill
+from ocr import recognize
+
 try:
     import onnxruntime
     import tokenizers
@@ -35,6 +38,25 @@ from core.skill_manager import SkillManager
 from core.web_server import WebServerThread
 from core.updater import UpdateCheckerThread
 import webbrowser
+
+
+class VoiceRecordThread(QThread):
+    text_ready = pyqtSignal(str)
+
+    def __init__(self,parent=None):
+        super().__init__(parent)
+
+    def run(self):
+        result = voice_skill.execute()
+        if result.get("success"):
+            recognized_text = result["data"]["text"].strip()
+            if recognized_text:
+                self.text_ready.emit(recognized_text)
+            else:
+                self.text_ready.emit("(没有听清，再说一遍哦)")
+        else:
+            self.text_ready.emit(f"(录音出错了:{result.get('error')})")
+
 
 
 class DialogBubble(QWidget):
@@ -165,7 +187,7 @@ class InputDialogBubble(QWidget):
         self.line_edit.setPlaceholderText("对彤彤说点什么...")
         self.line_edit.setMinimumWidth(160)
         self.line_edit.returnPressed.connect(self.send_text)
-        
+
         self.send_btn = QPushButton("发送")
         self.send_btn.clicked.connect(self.send_text)
         
@@ -193,6 +215,14 @@ class InputDialogBubble(QWidget):
         if text:
             self.text_entered.emit(text)
         self.hide()
+    def on_voice_finished(self,text):
+        self.voice_btn.setEnabled(True)
+        self.voice_btn.setText("🎤")
+        if not text.startswith("("):
+            self.line_edit.setText(text)
+            self.send_text()
+        else:
+            self.line_edit.setText(text)
 
 class Particle(QLabel):
     def __init__(self, parent, text, color, start_pos, end_pos, duration=1500):
@@ -473,6 +503,23 @@ class Pet(QWidget):
         aspect = self.pixmap.width() / self.pixmap.height()
         self.base_width = int(self.base_height * aspect)
         
+        # ---- 语音悬浮按钮 ----
+        self.voice_btn = QPushButton("🎤", self)
+        self.voice_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 200);
+                border: 2px solid #ffb6c1;
+                border-radius: 20px;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #ff91a4;
+            }
+        """)
+        self.voice_btn.setFixedSize(40, 40)
+        self.voice_btn.clicked.connect(self.start_voice_input)
+        self.voice_btn.show()
+
         self.update_image()
         self.dragging = False
         self.offset = QPoint()
@@ -787,6 +834,11 @@ class Pet(QWidget):
         self.idle_timer.stop()
         self.idle_timer.start(600000)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'voice_btn'):
+            self.voice_btn.move(self.width() - 50, self.height() - 50)
+
     def mousePressEvent(self, event):
         self.reset_idle_timer()
         if not self.input_bubble.isHidden():
@@ -983,6 +1035,22 @@ class Pet(QWidget):
     def on_input_entered(self, text):
         self.show_bubble("思考中...")
         self.chat_thread.send_message(text, is_idle=False)
+
+    def start_voice_input(self):
+        self.voice_btn.setEnabled(False)
+        self.voice_btn.setText("👂")
+        
+        self.voice_thread = VoiceRecordThread(self)
+        self.voice_thread.text_ready.connect(self.on_voice_finished)
+        self.voice_thread.start()
+        
+    def on_voice_finished(self, text):
+        self.voice_btn.setEnabled(True)
+        self.voice_btn.setText("🎤")
+        if not text.startswith("（"):
+            if self.chat_thread is not None:
+                self.show_bubble("思考中...")
+                self.chat_thread.send_message(text, is_idle=False)
 
     def action_chat(self):
         screen_rect = QApplication.primaryScreen().availableGeometry()

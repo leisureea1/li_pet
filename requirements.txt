@@ -19,3 +19,6 @@ mss
 pillow
 paddleocr
 paddlepaddle
+faster-whisper
+sounddevice
+scipy
