@@ -2,8 +2,7 @@ name: Build and Package App
 
 on:
   push:
-    branches:
-      - main
+    
     tags:
       - '*'
   workflow_dispatch:
