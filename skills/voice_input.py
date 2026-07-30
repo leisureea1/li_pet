@@ -2,11 +2,7 @@ import os
 import sys
 
 
-skills_dir = os.path.dirname(os.path.abspath(__file__))
-
-if skills_dir not in sys.path:
-    sys.path.append(skills_dir)
-from audio.recorder import record_audio
+from skills.audio.recorder import record_audio
 from faster_whisper import WhisperModel
 
 TOOL_SCHEMA={

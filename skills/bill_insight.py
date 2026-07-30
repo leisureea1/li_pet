@@ -1,16 +1,11 @@
 import os
 import sys
 
-# Add skills dir to path so we can import bill modules
-skills_dir = os.path.dirname(os.path.abspath(__file__))
-if skills_dir not in sys.path:
-    sys.path.append(skills_dir)
-
-from bill.importer import load_bill
-from bill.analyzer import analyze_basic_stats
-from bill.relationship import analyze_relationships
-from bill.portrait import build_portrait
-from bill.storyteller import format_story_and_memory
+from skills.bill.importer import load_bill
+from skills.bill.analyzer import analyze_basic_stats
+from skills.bill.relationship import analyze_relationships
+from skills.bill.portrait import build_portrait
+from skills.bill.storyteller import format_story_and_memory
 
 TOOL_SCHEMA = {
     "name": "bill_insight",

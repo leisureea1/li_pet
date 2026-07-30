@@ -3,12 +3,7 @@ import sys
 import sqlite3
 from datetime import date
 
-skill_dir = os.path.dirname(os.path.abspath(__file__))
-
-if skill_dir not in sys.path:
-    sys.path.append(skill_dir)
-
-from screen_time.app_tracker_services import (
+from skills.screen_time.app_tracker_services import (
 get_foreground_app,
 DB_FILE
 )

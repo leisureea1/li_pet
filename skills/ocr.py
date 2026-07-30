@@ -17,12 +17,7 @@ if getattr(np, 'float', None) is None: np.float = float
 os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "False"
 
-skills_dir = os.path.dirname(
-    os.path.abspath(__file__)
-)
-if skills_dir not in sys.path:
-    sys.path.append(skills_dir)
-from screen_ocr.screenshot import capture_screen
+from skills.screen_ocr.screenshot import capture_screen
 from paddleocr import PaddleOCR
 
 TOOL_SCHEMA = {
