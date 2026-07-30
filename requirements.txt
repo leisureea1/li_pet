@@ -15,7 +15,7 @@ pandas
 pywin32; sys_platform == 'win32'
 mss
 pillow
-vosk
+faster-whisper
 sounddevice
 scipy
 onnxruntime

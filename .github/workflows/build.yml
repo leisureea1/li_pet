@@ -39,8 +39,8 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           
-      - name: Download Vosk Model
-        run: python scripts/download_vosk.py
+      - name: Download Whisper Model
+        run: python scripts/download_whisper.py
         
       - name: Build executable with PyInstaller
         shell: bash
@@ -48,10 +48,12 @@ jobs:
           pyinstaller --name "pet" --windowed \
             --collect-all onnxruntime \
             --collect-all tokenizers \
+            --collect-all faster_whisper \
+            --collect-all ctranslate2 \
             --add-data "character_fullbody.png${{ matrix.separator }}." \
             --add-data "pat_hand_nobg.png${{ matrix.separator }}." \
             --add-data "screen.png${{ matrix.separator }}." \
-            --add-data "models/vosk-model${{ matrix.separator }}models/vosk-model" \
+            --add-data "models/faster-whisper-model${{ matrix.separator }}models/faster-whisper-model" \
             pet.py --clean
             
       - name: Set up NSIS (Windows only)

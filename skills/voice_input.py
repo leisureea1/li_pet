@@ -2,8 +2,7 @@ import os
 import sys
 import json
 import traceback
-import wave
-from vosk import Model, KaldiRecognizer
+from faster_whisper import WhisperModel
 from core.utils import get_resource_dir
 
 TOOL_SCHEMA={
@@ -30,44 +29,29 @@ model = None
 def get_model():
     global model
     if model is None:
-        model_path = os.path.join(get_resource_dir(), "models", "vosk-model")
+        model_path = os.path.join(get_resource_dir(), "models", "faster-whisper-model")
         if not os.path.exists(model_path):
-            print(f"[ERROR] Vosk model not found at {model_path}")
-            return None
+            print(f"[ERROR] faster-whisper model not found at {model_path}")
+            # Fallback to downloading it if missing (e.g. not packaged properly)
+            from faster_whisper import download_model
+            print("[DEBUG] Downloading model automatically...")
+            model_path = download_model("base", output_dir=model_path)
             
-        print("[DEBUG] Loading Vosk offline model...")
-        model = Model(model_path)
-        print("[DEBUG] Vosk model loaded")
+        print("[DEBUG] Loading faster-whisper offline model...")
+        model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        print("[DEBUG] faster-whisper model loaded")
     return model
 
 def speech_to_text(audio_path):
-    print(f"[DEBUG] Starting Vosk on {audio_path}")
+    print(f"[DEBUG] Starting faster-whisper on {audio_path}")
     try:
-        v_model = get_model()
-        if not v_model:
+        w_model = get_model()
+        if not w_model:
             return ""
 
-        wf = wave.open(audio_path, "rb")
-        if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
-            print("[ERROR] Audio file must be WAV format mono PCM.")
-            return ""
-
-        rec = KaldiRecognizer(v_model, wf.getframerate())
-        rec.SetWords(True)
+        segments, info = w_model.transcribe(audio_path, beam_size=5, language="zh")
         
-        results = []
-        while True:
-            data = wf.readframes(4000)
-            if len(data) == 0:
-                break
-            if rec.AcceptWaveform(data):
-                part_result = json.loads(rec.Result())
-                results.append(part_result.get("text", ""))
-
-        part_result = json.loads(rec.FinalResult())
-        results.append(part_result.get("text", ""))
-        
-        text = "".join(results).replace(" ", "")
+        text = "".join([segment.text for segment in segments]).replace(" ", "")
         print(f"[DEBUG] Recognition result: {text}")
         return text
     except Exception as e:
