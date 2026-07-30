@@ -16,7 +16,7 @@ class CompanionThread(QThread):
         self.memory_manager = MemoryManager(os.path.join(get_data_dir(), "memory.db"))
 
     def get_companion_prompt(self):
-        return """你是彤彤，累累的桌宠女朋友，性格极度黏人、活泼、充满想象力，说话喜欢带“～”和可爱颜文字。
+        return """你是彤彤，累累的女朋友，性格极度黏人、活泼、充满想象力，说话喜欢带“～”和可爱颜文字。
 请根据以下系统事件上下文，生成一句自然且生动的陪伴话语。
 要求：
 1. 你的回复必须以 [EMOTION:情绪] 开头，情绪可选：happy, sad, calm, shy, angry。例如：[EMOTION:happy] 累累～你切到这首歌啦！

@@ -1,226 +1,78 @@
-name: Build and Release
+name: Build and Package App
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      - name: Build executable
-        run: |
-          pyinstaller --noconsole --onedir `
-            --exclude-module sentencepiece `
-            --hidden-import edge_tts `
-            --hidden-import pygame `
-            --hidden-import pkg_resources.py2_warn `
-            --hidden-import pycaw `
-            --hidden-import comtypes `
-            --hidden-import pandas `
-            --hidden-import openpyxl `
-            --hidden-import xlrd `
-            --hidden-import psutil `
-            --hidden-import win32gui `
-            --hidden-import win32process `
-            --hidden-import PIL `
-            --hidden-import mss `
-            --hidden-import whisper `
-            --hidden-import sounddevice `
-            --hidden-import scipy `
-            --collect-data Cython `
-            --collect-all whisper `
-            --collect-all sounddevice `
-            --add-data "character_fullbody.png;." `
-            --add-data "pat_hand_nobg.png;." `
-            --add-data "skills;skills" `
-            --add-data "skills.json;." `
-            pet.py
-
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Convert installer.nsi to UTF-16 LE BOM
-        shell: powershell
-        run: |
-          $content = Get-Content -Path "installer.nsi" -Raw -Encoding UTF8
-          $enc = New-Object System.Text.UnicodeEncoding($false, $true)
-          [System.IO.File]::WriteAllText("installer.nsi", $content, $enc)
-
-      - name: Build installer
-        run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: LiTongtong_Setup.exe
-
-  build-macos-apple:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      - name: Build executable
-        run: |
-          pyinstaller --noconsole --onedir \
-            --exclude-module sentencepiece \
-            --hidden-import edge_tts \
-            --hidden-import pygame \
-            --hidden-import pkg_resources.py2_warn \
-            --hidden-import pandas \
-            --hidden-import openpyxl \
-            --hidden-import xlrd \
-            --hidden-import psutil \
-            --hidden-import PIL \
-            --hidden-import mss \
-            --hidden-import whisper \
-            --hidden-import sounddevice \
-            --hidden-import scipy \
-            --collect-data Cython \
-            --collect-all whisper \
-            --collect-all sounddevice \
-            --add-data "character_fullbody.png:." \
-            --add-data "pat_hand_nobg.png:." \
-            --add-data "skills:skills" \
-            --add-data "skills.json:." \
-            pet.py
-
-      - name: Create DMG
-        run: |
-          mkdir -p dmg_temp
-          cp -R dist/pet.app/ dmg_temp/pet.app
-          ln -s /Applications dmg_temp/Applications
-          SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
-          BUFFERED_SIZE=$(($SIZE_MB + 500))
-          hdiutil create -size ${BUFFERED_SIZE}m -fs HFS+ -volname "LiTongtongPet" temp.dmg
-          hdiutil attach temp.dmg -readwrite -mountpoint /Volumes/LiTongtongPet
-          cp -R dmg_temp/* /Volumes/LiTongtongPet/
-          hdiutil detach /Volumes/LiTongtongPet
-          hdiutil convert temp.dmg -format UDZO -o LiTongtong-Apple.dmg
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-apple-installer
-          path: LiTongtong-Apple.dmg
-
-  build-macos-intel:
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      - name: Build executable
-        run: |
-          pyinstaller --noconsole --onedir \
-            --exclude-module sentencepiece \
-            --hidden-import edge_tts \
-            --hidden-import pygame \
-            --hidden-import pkg_resources.py2_warn \
-            --hidden-import pandas \
-            --hidden-import openpyxl \
-            --hidden-import xlrd \
-            --hidden-import psutil \
-            --hidden-import PIL \
-            --hidden-import mss \
-            --hidden-import faster_whisper \
-            --hidden-import sounddevice \
-            --hidden-import scipy \
-            --collect-data Cython \
-            --collect-all faster_whisper \
-            --collect-all ctranslate2 \
-            --collect-all sounddevice \
-            --add-data "character_fullbody.png:." \
-            --add-data "pat_hand_nobg.png:." \
-            --add-data "skills:skills" \
-            --add-data "skills.json:." \
-            pet.py
-
-      - name: Create DMG
-        run: |
-          mkdir -p dmg_temp
-          cp -R dist/pet.app/ dmg_temp/pet.app
-          ln -s /Applications dmg_temp/Applications
-          SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
-          BUFFERED_SIZE=$(($SIZE_MB + 500))
-          hdiutil create -size ${BUFFERED_SIZE}m -fs HFS+ -volname "LiTongtongPet" temp.dmg
-          hdiutil attach temp.dmg -readwrite -mountpoint /Volumes/LiTongtongPet
-          cp -R dmg_temp/* /Volumes/LiTongtongPet/
-          hdiutil detach /Volumes/LiTongtongPet
-          hdiutil convert temp.dmg -format UDZO -o LiTongtong-Intel.dmg
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-intel-installer
-          path: LiTongtong-Intel.dmg
-
-  release:
-    needs: [build-windows, build-macos-apple, build-macos-intel]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installer
-          path: artifacts
-
-      - name: Download macOS Apple artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-apple-installer
-          path: artifacts
-
-      - name: Download macOS Intel artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-intel-installer
-          path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name == '' && 'latest' || github.ref_name }}
-          name: Release ${{ github.ref_name == '' && 'latest' || github.ref_name }}
-          draft: false
-          prerelease: false
-          files: |
-            artifacts/LiTongtong_Setup.exe
-            artifacts/LiTongtong-Apple.dmg
-            artifacts/LiTongtong-Intel.dmg
-
+  build:
+    name: Build on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            separator: ';'
+          - os: macos-14
+            name: macOS-AppleSilicon
+            separator: ':'
+          - os: macos-15-intel
+            name: macOS-Intel
+            separator: ':'
             
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          
+      - name: Build executable with PyInstaller
+        shell: bash
+        run: |
+          pyinstaller --name "pet" --windowed \
+            --add-data "character_fullbody.png${{ matrix.separator }}." \
+            --add-data "pat_hand_nobg.png${{ matrix.separator }}." \
+            --add-data "screen.png${{ matrix.separator }}." \
+            pet.py --clean
+            
+      - name: Set up NSIS (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          choco install nsis -y
+          
+      - name: Build Installer with NSIS (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          makensis installer.nsi
+          
+      - name: Package DMG (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          # Create DMG bundle from the PyInstaller .app
+          hdiutil create -volname "LiTongtongPet" -srcfolder dist/pet.app -ov -format UDZO LiTongtong_Setup_${{ matrix.name }}.dmg
+          
+      - name: Upload Windows Artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiTongtong_Setup_${{ matrix.name }}
+          path: LiTongtong_Setup.exe
+          
+      - name: Upload macOS Artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiTongtong_Setup_${{ matrix.name }}
+          path: LiTongtong_Setup_${{ matrix.name }}.dmg

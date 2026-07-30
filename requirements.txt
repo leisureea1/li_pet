@@ -22,3 +22,5 @@ torchaudio
 openai-whisper
 sounddevice
 scipy
+onnxruntime
+tokenizers
