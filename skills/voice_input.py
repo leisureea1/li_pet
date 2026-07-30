@@ -39,7 +39,8 @@ def get_model():
         model = WhisperModel(
             "small",
             device="cpu",
-            compute_type="int8"
+            compute_type="default",
+            cpu_threads=4
         )
         print("[DEBUG] whisper loaded")
     return model

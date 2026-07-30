@@ -6,6 +6,10 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import threading
 import skills.voice_input as voice_skill
 
+import ctranslate2
+print("[DEBUG] ctranslate2 path:", ctranslate2.__file__)
+print("[DEBUG] ctranslate2 version:", ctranslate2.__version__)
+
 try:
     import onnxruntime
     import tokenizers
@@ -1133,4 +1137,8 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     pet = Pet()
     pet.show()
+    try:
+        voice_skill.get_model()
+    except Exception as e:
+        print(f"Failed to preload model: {e}")
     sys.exit(app.exec_())
