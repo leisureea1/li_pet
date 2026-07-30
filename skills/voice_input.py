@@ -1,9 +1,12 @@
 import os
 import sys
+import json
+import traceback
+import whisper
+import warnings
+from core.utils import get_data_dir
 
-
-from skills.audio.recorder import record_audio
-from faster_whisper import WhisperModel
+warnings.filterwarnings("ignore", category=UserWarning)
 
 TOOL_SCHEMA={
     "name":"voice_input",
@@ -24,69 +27,50 @@ TOOL_SCHEMA={
     }
 }
 
-# 模型初始化
-
-
 model = None
 
 def get_model():
     global model
     if model is None:
-        print("[DEBUG] loading whisper...")
-        import faulthandler
-        faulthandler.enable()
-        
-        model = WhisperModel(
-            "small",
-            device="cpu",
-            compute_type="default",
-            cpu_threads=4
-        )
-        print("[DEBUG] whisper loaded")
+        print("[DEBUG] loading official whisper (CPU mode)...")
+        # base 模型较小且在 CPU 上运行更快
+        model = whisper.load_model("base", device="cpu")
+        print("[DEBUG] official whisper loaded")
     return model
 
-def speech_to_text(
-        file
-):
-    whisper = get_model()
-
-    segments,info = whisper.transcribe(
-        file,
-        language="zh",
-        vad_filter=True,
-        initial_prompt="这是一个电脑助手语音指令："
-
-    )
-    text = ""
-    for segment in segments:
-        text += segment.text
-
-    return text
-def execute(
-        **kwargs
-):
+def speech_to_text(audio_path):
+    print(f"[DEBUG] Starting official whisper on {audio_path}")
     try:
-        wav = record_audio()
-        text = speech_to_text(wav)
-        
-        # 识别完成后自动删除临时录音文件
-        import os
-        if os.path.exists(wav):
-            os.remove(wav)
+        w_model = get_model()
+        result = w_model.transcribe(audio_path, language="zh", fp16=False)
+        text = result["text"]
+        print(f"[DEBUG] Recognition result: {text}")
+        return text
+    except Exception as e:
+        print(f"[ERROR] STT Exception: {e}")
+        traceback.print_exc()
+        return ""
+
+from skills.audio.recorder import record_audio
+
+def execute(**kwargs):
+    try:
+        wav_file = record_audio()
+        if not wav_file or not os.path.exists(wav_file):
+            return {"success": False, "error": "No recordings found"}
             
-        print(
-            "[debug]",
-            text
-        )
+        text = speech_to_text(wav_file)
+        
+        # Cleanup
+        if os.path.exists(wav_file):
+            os.remove(wav_file)
+            
         return {
             "success": True,
-            "data":{
-                "text":text
+            "data": {
+                "text": text
             },
-            "message":"识别完成"
+            "message": "识别完成"
         }
     except Exception as e:
-        return {
-            "success": False,
-            "error":str(e)
-        }
+        return {"success": False, "error": str(e)}

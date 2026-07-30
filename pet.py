@@ -6,12 +6,8 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import threading
 import skills.voice_input as voice_skill
 
-import ctranslate2
-print("[DEBUG] ctranslate2 path:", ctranslate2.__file__)
-print("[DEBUG] ctranslate2 version:", ctranslate2.__version__)
 
 try:
-    import onnxruntime
     import tokenizers
     from skills.screen_time.app_tracker_services import run as start_app_tracker
 except ImportError:
