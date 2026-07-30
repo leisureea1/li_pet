@@ -15,11 +15,7 @@ pandas
 pywin32; sys_platform == 'win32'
 mss
 pillow
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-torchvision
-torchaudio
-openai-whisper
+vosk
 sounddevice
 scipy
 onnxruntime

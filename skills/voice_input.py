@@ -2,11 +2,9 @@ import os
 import sys
 import json
 import traceback
-import whisper
-import warnings
-from core.utils import get_data_dir
-
-warnings.filterwarnings("ignore", category=UserWarning)
+import wave
+from vosk import Model, KaldiRecognizer
+from core.utils import get_resource_dir
 
 TOOL_SCHEMA={
     "name":"voice_input",
@@ -32,18 +30,44 @@ model = None
 def get_model():
     global model
     if model is None:
-        print("[DEBUG] loading official whisper (CPU mode)...")
-        # base 模型较小且在 CPU 上运行更快
-        model = whisper.load_model("base", device="cpu")
-        print("[DEBUG] official whisper loaded")
+        model_path = os.path.join(get_resource_dir(), "models", "vosk-model")
+        if not os.path.exists(model_path):
+            print(f"[ERROR] Vosk model not found at {model_path}")
+            return None
+            
+        print("[DEBUG] Loading Vosk offline model...")
+        model = Model(model_path)
+        print("[DEBUG] Vosk model loaded")
     return model
 
 def speech_to_text(audio_path):
-    print(f"[DEBUG] Starting official whisper on {audio_path}")
+    print(f"[DEBUG] Starting Vosk on {audio_path}")
     try:
-        w_model = get_model()
-        result = w_model.transcribe(audio_path, language="zh", fp16=False)
-        text = result["text"]
+        v_model = get_model()
+        if not v_model:
+            return ""
+
+        wf = wave.open(audio_path, "rb")
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
+            print("[ERROR] Audio file must be WAV format mono PCM.")
+            return ""
+
+        rec = KaldiRecognizer(v_model, wf.getframerate())
+        rec.SetWords(True)
+        
+        results = []
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            if rec.AcceptWaveform(data):
+                part_result = json.loads(rec.Result())
+                results.append(part_result.get("text", ""))
+
+        part_result = json.loads(rec.FinalResult())
+        results.append(part_result.get("text", ""))
+        
+        text = "".join(results).replace(" ", "")
         print(f"[DEBUG] Recognition result: {text}")
         return text
     except Exception as e:

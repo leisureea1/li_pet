@@ -39,15 +39,17 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           
+      - name: Download Vosk Model
+        run: python scripts/download_vosk.py
+        
       - name: Build executable with PyInstaller
         shell: bash
         run: |
           pyinstaller --name "pet" --windowed \
-            --collect-all torch \
-            --collect-all whisper \
             --add-data "character_fullbody.png${{ matrix.separator }}." \
             --add-data "pat_hand_nobg.png${{ matrix.separator }}." \
             --add-data "screen.png${{ matrix.separator }}." \
+            --add-data "models/vosk-model${{ matrix.separator }}models/vosk-model" \
             pet.py --clean
             
       - name: Set up NSIS (Windows only)
