@@ -8,8 +8,6 @@ cython
 winsdk; sys_platform == 'win32'
 pycaw; sys_platform == 'win32'
 comtypes; sys_platform == 'win32'
-onnxruntime
-tokenizers
 
 openpyxl
 xlrd
@@ -17,6 +15,10 @@ pandas
 pywin32; sys_platform == 'win32'
 mss
 pillow
-faster-whisper
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+torchaudio
+openai-whisper
 sounddevice
 scipy

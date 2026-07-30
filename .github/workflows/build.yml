@@ -38,12 +38,11 @@ jobs:
             --hidden-import win32process `
             --hidden-import PIL `
             --hidden-import mss `
-            --hidden-import faster_whisper `
+            --hidden-import whisper `
             --hidden-import sounddevice `
             --hidden-import scipy `
             --collect-data Cython `
-            --collect-all faster_whisper `
-            --collect-all ctranslate2 `
+            --collect-all whisper `
             --collect-all sounddevice `
             --add-data "character_fullbody.png;." `
             --add-data "pat_hand_nobg.png;." `
@@ -98,12 +97,11 @@ jobs:
             --hidden-import psutil \
             --hidden-import PIL \
             --hidden-import mss \
-            --hidden-import faster_whisper \
+            --hidden-import whisper \
             --hidden-import sounddevice \
             --hidden-import scipy \
             --collect-data Cython \
-            --collect-all faster_whisper \
-            --collect-all ctranslate2 \
+            --collect-all whisper \
             --collect-all sounddevice \
             --add-data "character_fullbody.png:." \
             --add-data "pat_hand_nobg.png:." \
