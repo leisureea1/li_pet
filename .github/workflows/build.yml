@@ -41,6 +41,7 @@ jobs:
             --hidden-import faster_whisper `
             --hidden-import sounddevice `
             --hidden-import scipy `
+            --collect-data Cython `
             --collect-all paddleocr `
             --collect-all paddle `
             --collect-all paddlex `
@@ -103,6 +104,7 @@ jobs:
             --hidden-import faster_whisper \
             --hidden-import sounddevice \
             --hidden-import scipy \
+            --collect-data Cython \
             --collect-all paddleocr \
             --collect-all paddle \
             --collect-all paddlex \
@@ -164,6 +166,7 @@ jobs:
             --hidden-import faster_whisper \
             --hidden-import sounddevice \
             --hidden-import scipy \
+            --collect-data Cython \
             --collect-all paddleocr \
             --collect-all paddle \
             --collect-all paddlex \
