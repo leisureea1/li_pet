@@ -49,7 +49,7 @@ def speech_to_text(audio_path):
         if not w_model:
             return ""
 
-        segments, info = w_model.transcribe(audio_path, beam_size=5, language="zh")
+        segments, info = w_model.transcribe(audio_path, beam_size=5, language="zh",initial_prompt="李彤彤是一只桌宠，她的名字叫李彤彤。")
         
         text = "".join([segment.text for segment in segments]).replace(" ", "")
         print(f"[DEBUG] Recognition result: {text}")

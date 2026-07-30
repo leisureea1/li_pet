@@ -44,17 +44,7 @@ jobs:
         
       - name: Build executable with PyInstaller
         shell: bash
-        run: |
-          pyinstaller --name "pet" --windowed \
-            --collect-all onnxruntime \
-            --collect-all tokenizers \
-            --collect-all faster_whisper \
-            --collect-all ctranslate2 \
-            --add-data "character_fullbody.png${{ matrix.separator }}." \
-            --add-data "pat_hand_nobg.png${{ matrix.separator }}." \
-            --add-data "screen.png${{ matrix.separator }}." \
-            --add-data "models/faster-whisper-model${{ matrix.separator }}models/faster-whisper-model" \
-            pet.py --clean
+        run: pyinstaller pet.spec --clean
             
       - name: Set up NSIS (Windows only)
         if: runner.os == 'Windows'
