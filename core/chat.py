@@ -156,6 +156,8 @@ class ChatThread(QThread):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "weather"}}
                 elif intent == "search" and any(t["function"]["name"] == "search" for t in tools_schema):
                     payload["tool_choice"] = {"type": "function", "function": {"name": "search"}}
+                elif intent == "app_usage" and any(t["function"]["name"] == "app_usage" for t in tools_schema):
+                    payload["tool_choice"] = {"type": "function", "function": {"name": "app_usage"}}
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=20)

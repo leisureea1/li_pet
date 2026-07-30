@@ -2,10 +2,13 @@ import sqlite3
 from datetime import datetime
 import sys
 import os
+import threading
 try:
     import onnxruntime
     import tokenizers
+    from skills.screen_time.app_tracker_services import run as start_app_tracker
 except ImportError:
+    start_app_tracker = None
     pass
 import random
 import math
@@ -334,6 +337,12 @@ class Pet(QWidget):
         self.music_timer = QTimer(self)
         self.music_timer.timeout.connect(self.check_music)
         self.music_timer.start(2000)
+
+        # 启动应用时长后台追踪服务
+        if start_app_tracker:
+            self.tracker_thread = threading.Thread(target=start_app_tracker, daemon=True)
+            self.tracker_thread.start()
+            print("后台应用追踪线程已启动")
 
         # Update checker
         self.updater_thread = UpdateCheckerThread(CURRENT_VERSION, parent=self)
