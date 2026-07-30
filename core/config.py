@@ -3,7 +3,7 @@ import sys
 import json
 from .utils import get_data_dir, load_encrypted_json, save_encrypted_json
 
-CURRENT_VERSION = "v1.5.3"
+CURRENT_VERSION = "v1.5.4"
 
 def load_config():
     old_config_path = os.path.join(get_data_dir(), "config.json")

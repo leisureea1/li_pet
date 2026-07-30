@@ -24,6 +24,8 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller --noconsole --onedir `
+            --exclude-module sentencepiece `
+            --exclude-module paddlenlp `
             --hidden-import edge_tts `
             --hidden-import pygame `
             --hidden-import pkg_resources.py2_warn `
@@ -94,6 +96,8 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller --noconsole --onedir \
+            --exclude-module sentencepiece \
+            --exclude-module paddlenlp \
             --hidden-import edge_tts \
             --hidden-import pygame \
             --hidden-import pkg_resources.py2_warn \
@@ -159,6 +163,8 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller --noconsole --onedir \
+            --exclude-module sentencepiece \
+            --exclude-module paddlenlp \
             --hidden-import edge_tts \
             --hidden-import pygame \
             --hidden-import pkg_resources.py2_warn \
