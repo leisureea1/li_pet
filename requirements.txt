@@ -18,5 +18,5 @@ pillow
 faster-whisper
 sounddevice
 scipy
-onnxruntime
+onnxruntime==1.16.3
 tokenizers
