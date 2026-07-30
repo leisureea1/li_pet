@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime
 import sys
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import threading
 import skills.voice_input as voice_skill
 
@@ -1127,6 +1128,8 @@ class Pet(QWidget):
         self.show()
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     pet = Pet()
     pet.show()

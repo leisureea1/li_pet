@@ -33,7 +33,9 @@ def get_model():
     global model
     if model is None:
         print("[DEBUG] loading whisper...")
-
+        import faulthandler
+        faulthandler.enable()
+        
         model = WhisperModel(
             "small",
             device="cpu",
