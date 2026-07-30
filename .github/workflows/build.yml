@@ -43,7 +43,7 @@ jobs:
       - name: Build executable with PyInstaller
         shell: bash
         run: |
-          pyinstaller --name "pet" --onefile --windowed \
+          pyinstaller --name "pet" --windowed \
             --collect-all torch \
             --collect-all whisper \
             --add-data "character_fullbody.png${{ matrix.separator }}." \
