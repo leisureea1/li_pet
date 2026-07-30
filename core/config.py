@@ -3,7 +3,7 @@ import sys
 import json
 from .utils import get_data_dir, load_encrypted_json, save_encrypted_json
 
-CURRENT_VERSION = "v1.4.1"
+CURRENT_VERSION = "v1.4.2"
 
 def load_config():
     old_config_path = os.path.join(get_data_dir(), "config.json")
@@ -16,7 +16,7 @@ def load_config():
             return config
         except:
             pass
-    return load_encrypted_json("config.dat", {"api_key": "", "qianfan_api_key": "", "autostart": False, "enable_voice": True, "tts_voice": "zh-CN-XiaoxiaoNeural"})
+    return load_encrypted_json("config.dat", {"api_key": "", "qianfan_api_key": "", "autostart": False, "enable_voice": False, "tts_voice": "zh-CN-XiaoxiaoNeural"})
 
 def save_config(config):
     save_encrypted_json("config.dat", config)

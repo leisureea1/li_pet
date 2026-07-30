@@ -32,6 +32,15 @@ jobs:
             --hidden-import pandas `
             --hidden-import openpyxl `
             --hidden-import xlrd `
+            --hidden-import psutil `
+            --hidden-import win32gui `
+            --hidden-import win32process `
+            --hidden-import PIL `
+            --hidden-import mss `
+            --hidden-import paddleocr `
+            --collect-all paddleocr `
+            --collect-all paddle `
+            --collect-all paddlex `
             --add-data "character_fullbody.png;." `
             --add-data "pat_hand_nobg.png;." `
             --add-data "skills;skills" `
@@ -81,6 +90,13 @@ jobs:
             --hidden-import pandas \
             --hidden-import openpyxl \
             --hidden-import xlrd \
+            --hidden-import psutil \
+            --hidden-import PIL \
+            --hidden-import mss \
+            --hidden-import paddleocr \
+            --collect-all paddleocr \
+            --collect-all paddle \
+            --collect-all paddlex \
             --add-data "character_fullbody.png:." \
             --add-data "pat_hand_nobg.png:." \
             --add-data "skills:skills" \
@@ -129,6 +145,13 @@ jobs:
             --hidden-import pandas \
             --hidden-import openpyxl \
             --hidden-import xlrd \
+            --hidden-import psutil \
+            --hidden-import PIL \
+            --hidden-import mss \
+            --hidden-import paddleocr \
+            --collect-all paddleocr \
+            --collect-all paddle \
+            --collect-all paddlex \
             --add-data "character_fullbody.png:." \
             --add-data "pat_hand_nobg.png:." \
             --add-data "skills:skills" \
