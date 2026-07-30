@@ -23,7 +23,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --noconsole --onefile `
+          pyinstaller --noconsole --onedir `
             --hidden-import edge_tts `
             --hidden-import pygame `
             --hidden-import pkg_resources.py2_warn `
@@ -93,7 +93,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --noconsole --onefile \
+          pyinstaller --noconsole --onedir \
             --hidden-import edge_tts \
             --hidden-import pygame \
             --hidden-import pkg_resources.py2_warn \
@@ -126,7 +126,7 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dmg_temp
-          cp dist/pet dmg_temp/
+          cp -R dist/pet.app/ dmg_temp/pet.app
           ln -s /Applications dmg_temp/Applications
           SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
           BUFFERED_SIZE=$(($SIZE_MB + 500))
@@ -158,7 +158,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --noconsole --onefile \
+          pyinstaller --noconsole --onedir \
             --hidden-import edge_tts \
             --hidden-import pygame \
             --hidden-import pkg_resources.py2_warn \
@@ -191,7 +191,7 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dmg_temp
-          cp dist/pet dmg_temp/
+          cp -R dist/pet.app/ dmg_temp/pet.app
           ln -s /Applications dmg_temp/Applications
           SIZE_MB=$(du -sm dmg_temp | awk '{print $1}')
           BUFFERED_SIZE=$(($SIZE_MB + 500))

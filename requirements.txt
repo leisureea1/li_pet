@@ -22,3 +22,5 @@ paddlepaddle
 faster-whisper
 sounddevice
 scipy
+paddlex[ocr]
+lxml
