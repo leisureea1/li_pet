@@ -28,7 +28,7 @@ class EventManager(QObject):
         
         self.state = {
             "window": {"name": "", "start_time": 0, "last_notified": ""},
-            "music": {"title": "", "start_time": 0, "last_notified": ""},
+            "music": {"title": "", "start_time": 0, "last_notified": "", "cd_seconds": 15},
             "user": {"idle_start_time": 0, "active_start_time": time.time(), "is_idle": False}
         }
         
@@ -46,9 +46,9 @@ class EventManager(QObject):
             "late_night": 14400,       # 4小时
             "prolonged_sitting": 3600, # 1小时
             "waiting": 300,            # 5分钟
-            "window_change": 60,       # 只要过了60秒，切任意窗口都会触发
-            "music": 15,               # 只要过了15秒，切任意歌都会触发
-            "global": 15               # 极短的全局冷却，保留黏人特性
+            "window_change": 60,       # 切窗口：60秒内不重复
+            "music": 10,               # 切歌：10秒内不重复
+            "global": 0                # 全局冷却关闭 —— 各事件独立冷却足够
         }
         
         # 记录触发次数，用于情绪状态
@@ -74,8 +74,8 @@ class EventManager(QObject):
         if current_music and current_music.strip() in ["网易云音乐", "QQ音乐", "Spotify", "Spotify Free", "Spotify Premium", "酷狗音乐", "酷我音乐", "Apple Music"]:
             return
             
-        # 更新音乐状态
-        if current_music != self.state["music"]["title"]:
+        old = self.state["music"]["title"]
+        if current_music != old:
             self.state["music"]["title"] = current_music or ""
             self.state["music"]["start_time"] = now if current_music else 0
             

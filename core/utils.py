@@ -73,8 +73,9 @@ def get_title_from_pid(target_pid):
         return ""
     try:
         import ctypes
+        from ctypes import wintypes
         titles = []
-        def callback(hwnd, hwnds):
+        def callback(hwnd, lParam):
             pid = ctypes.c_ulong()
             ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             if pid.value == target_pid:
@@ -84,8 +85,9 @@ def get_title_from_pid(target_pid):
                     ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
                     titles.append(buff.value)
             return True
-        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
-        ctypes.windll.user32.EnumWindows(EnumWindowsProc(callback), 0)
+            
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(WNDENUMPROC(callback), 0)
         
         valid_titles = [t for t in titles if t not in ["Default IME", "MSCTFIME UI", "网易云音乐"] and len(t) > 2]
         if valid_titles:
@@ -121,15 +123,22 @@ def get_current_music_info_sync():
                     
             session = manager.get_current_session()
             if session:
-                info = await session.try_get_media_properties_async()
-                title = info.title if info.title else "未知"
-                artist = info.artist if info.artist else "未知"
-                return f"{artist} - {title}"
+                playback_info = session.get_playback_info()
+                if playback_info:
+                    status = playback_info.playback_status
+                    status_val = status.value if hasattr(status, 'value') else status
+                    if status_val == 4:
+                        info = await session.try_get_media_properties_async()
+                        title = info.title if info.title else "未知"
+                        artist = info.artist if info.artist else "未知"
+                        return f"{artist} - {title}"
             return ""
         import asyncio
         loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(fetch())
+        try:
+            return loop.run_until_complete(fetch())
+        finally:
+            loop.close()
     except Exception as e:
         print("Music fetch error:", e)
         return ""

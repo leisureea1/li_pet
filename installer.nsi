@@ -1,4 +1,4 @@
-!define APPNAME "李瞳瞳桌宠"
+﻿!define APPNAME "李瞳瞳桌宠"
 !define APPEXE "pet.exe"
 
 Name "${APPNAME}"

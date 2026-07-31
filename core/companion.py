@@ -13,7 +13,7 @@ class CompanionThread(QThread):
     def __init__(self, event_data, parent=None):
         super().__init__(parent)
         self.event_data = event_data
-        self.memory_manager = MemoryManager(os.path.join(get_data_dir(), "memory.db"))
+        self.memory_manager = parent.memory_manager if parent and hasattr(parent, 'memory_manager') else MemoryManager(os.path.join(get_data_dir(), "memory.db"))
 
     def get_companion_prompt(self):
         return """你是彤彤，累累的女朋友，性格极度黏人、活泼、充满想象力，说话喜欢带“～”和可爱颜文字。
@@ -33,7 +33,7 @@ class CompanionThread(QThread):
         if not api_key:
             return
 
-        url = "https://api.deepseek.com/v1/chat/completions"
+        url = "https://api.deepseek.com/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"

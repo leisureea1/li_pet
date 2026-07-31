@@ -26,21 +26,32 @@ TOOL_SCHEMA={
 
 model = None
 
+
 def get_model():
     global model
     if model is None:
         model_path = os.path.join(get_resource_dir(), "models", "faster-whisper-model")
+        
         if not os.path.exists(model_path):
             print(f"[ERROR] faster-whisper model not found at {model_path}")
-            # Fallback to downloading it if missing (e.g. not packaged properly)
             from faster_whisper import download_model
-            print("[DEBUG] Downloading model automatically...")
             model_path = download_model("base", output_dir=model_path)
             
         print("[DEBUG] Loading faster-whisper offline model...")
-        model = WhisperModel(model_path, device="cpu", compute_type="int8")
-        print("[DEBUG] faster-whisper model loaded")
+        for compute_type in ("default", "auto", "int8", "int8_float16"):
+            try:
+                model = WhisperModel(
+                    model_path, device="cpu", compute_type=compute_type,
+                    cpu_threads=2, num_workers=1
+                )
+                print(f"[DEBUG] faster-whisper model loaded (compute_type={compute_type})")
+                break
+            except Exception as e:
+                print(f"[WARN] compute_type={compute_type} failed: {e}")
+        else:
+            raise RuntimeError("All compute_type attempts failed for faster-whisper")
     return model
+
 
 def speech_to_text(audio_path):
     print(f"[DEBUG] Starting faster-whisper on {audio_path}")

@@ -1,4 +1,3 @@
-import onnxruntime
 import sqlite3
 from datetime import datetime
 import sys
@@ -363,11 +362,6 @@ class Pet(QWidget):
         self.last_active_window = get_active_window_title()
         import time
         self.last_proactive_time = time.time()
-        
-        # Music detection timer (2 seconds)
-        self.music_timer = QTimer(self)
-        self.music_timer.timeout.connect(self.check_music)
-        self.music_timer.start(2000)
 
         # 启动应用时长后台追踪服务
         if start_app_tracker:
@@ -652,6 +646,11 @@ class Pet(QWidget):
                     pass
             if APP_CONFIG.get("enable_voice", True):
                 voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
+                # Wait for previous TTS thread to finish before replacing
+                if self.tts_thread is not None and self.tts_thread.isRunning():
+                    print("[DEBUG] Waiting for previous TTS to finish...")
+                    self.tts_thread.quit()
+                    self.tts_thread.wait(3000)
                 self.tts_thread = TTSThread(text, voice=voice_id, rate=rate, pitch=pitch, parent=self)
                 self.tts_thread.ready_signal.connect(lambda audio_file, txt=text: self.play_tts_and_show_bubble(txt, audio_file))
                 self.tts_thread.start()
@@ -697,21 +696,21 @@ class Pet(QWidget):
             self.anim.start()
 
     def play_tts_and_show_bubble(self, text, audio_file):
-        self.show_bubble(text, duration=0) # Keeps open until audio finishes
+        self.show_bubble(text, duration=0)
         self.current_audio_file = audio_file
         try:
             import pygame
-            pygame.mixer.init()
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
             pygame.mixer.music.load(audio_file)
             pygame.mixer.music.play()
             
-            # Start timer to check when music stops
             if not hasattr(self, 'audio_check_timer'):
                 self.audio_check_timer = QTimer(self)
                 self.audio_check_timer.timeout.connect(self.check_audio_status)
             self.audio_check_timer.start(100)
-        except:
-            # Fallback if audio fails
+        except Exception as ex:
+            print(f"[DEBUG] Audio playback failed: {ex}")
             duration = max(3000, len(text) * 200)
             self.show_bubble(text, duration)
 
@@ -929,57 +928,41 @@ class Pet(QWidget):
         
         action = menu.exec_(self.mapToGlobal(event.pos()))
 
-    def check_music(self):
-        if sys.platform != 'win32':
-            return
-        try:
-            from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
-            sessions = AudioUtilities.GetAllSessions()
-            playing = False
-            playing_pid = None
-            for s in sessions:
-                if getattr(s, 'Process', None) and "pet" not in s.Process.name().lower():
-                    try:
-                        meter = s._ctl.QueryInterface(IAudioMeterInformation)
-                        if meter.GetPeakValue() > 0.001:
-                            playing = True
-                            playing_pid = s.Process.pid
-                            break
-                    except Exception:
-                        pass
-            
-            if playing:
-                import random
-                note = random.choice(["🎵", "🎶", "🎸"])
-                start_x = self.width() // 2 + random.randint(-20, 20)
-                start_y = 20
-                start_pos = QPoint(start_x, start_y)
-                end_pos = QPoint(start_x + random.randint(-30, 30), start_y - random.randint(30, 60))
-                Particle(self, note, "#ff69b4", start_pos, end_pos, duration=2000)
-                
-            current_music = get_current_music_info_sync()
-            if not current_music and playing_pid:
-                current_music = get_title_from_pid(playing_pid)
-            
-            self.event_manager.update_music(current_music)
-            
-        except Exception as e:
-            print(f"[DEBUG] Exception in check_music: {e}")
-
     def proactive_observe(self):
-        active_window = get_active_window_title()
-        self.event_manager.update_window(active_window)
+        if getattr(self, '_observing', False):
+            return
+        self._observing = True
+        try:
+            active_window = get_active_window_title()
+            self.event_manager.update_window(active_window)
+            # Also detect music from active window title (e.g., "song - artist")
+            if active_window and " - " in active_window and len(active_window) > 5:
+                lower = active_window.lower()
+                if not any(kw in lower for kw in (".py", ".md", ".txt", ".cpp", ".js",
+                          "visual studio", "pycharm", "vscode", "code.exe")):
+                    self.event_manager.update_music(active_window)
+        finally:
+            self._observing = False
         
     def trigger_companion_chat(self, event_data):
         print(f"[DEBUG] Triggering companion chat: {event_data['event']}")
         if self.chat_thread is not None and self.chat_thread.isRunning():
+            print("[DEBUG] chat_thread busy, skip")
             return
         if self.companion_thread is not None and self.companion_thread.isRunning():
+            print("[DEBUG] companion_thread busy, skip")
             return
+        
+        # Clean up old thread
+        if self.companion_thread is not None:
+            self.companion_thread.quit()
+            self.companion_thread.wait(1000)
             
         self.companion_thread = CompanionThread(event_data, self)
         self.companion_thread.reply_ready.connect(self.on_chat_reply)
+        self.companion_thread.finished.connect(lambda: print("[DEBUG] CompanionThread finished"))
         self.companion_thread.start()
+        print("[DEBUG] CompanionThread started")
         
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -1050,8 +1033,26 @@ class Pet(QWidget):
         self.voice_btn.setText("🎤")
         if not text.startswith("（"):
             if self.chat_thread is not None:
-                self.show_bubble("思考中...")
-                self.chat_thread.send_message(text, is_idle=False)
+                if self.chat_thread.isRunning():
+                    print("[DEBUG] chat_thread busy, voice message queued")
+                    # Try again in 2 seconds
+                    QTimer.singleShot(2000, lambda t=text: self._retry_voice_chat(t))
+                    self.show_bubble("等一下哦～我还在想...")
+                else:
+                    self.show_bubble("思考中...")
+                    self.chat_thread.send_message(text, is_idle=False)
+
+    def _retry_voice_chat(self, text, attempt=0):
+        if self.chat_thread is None:
+            return
+        if self.chat_thread.isRunning():
+            if attempt < 15:  # max 30 seconds
+                QTimer.singleShot(2000, lambda: self._retry_voice_chat(text, attempt + 1))
+            else:
+                self.show_bubble("呜呜，我脑子转不过来了...")
+        else:
+            self.show_bubble("思考中...")
+            self.chat_thread.send_message(text, is_idle=False)
 
     def action_chat(self):
         screen_rect = QApplication.primaryScreen().availableGeometry()

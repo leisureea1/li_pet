@@ -59,7 +59,21 @@ class ChatThread(QThread):
         if active_window:
             background_lines.append(f"当前软件窗口：{active_window}")
 
-        music_info = get_current_music_info_sync()
+        # get_current_music_info_sync() uses WinRT COM which can hang in non-main threads.
+        # Run with a 2-second timeout to avoid blocking the chat thread.
+        music_info = ""
+        import threading
+        result = []
+        def _fetch():
+            try:
+                result.append(get_current_music_info_sync())
+            except Exception:
+                pass
+        t = threading.Thread(target=_fetch, daemon=True)
+        t.start()
+        t.join(timeout=2)
+        if result:
+            music_info = result[0]
         if music_info:
             background_lines.append(f"正在听：{music_info}")
 
@@ -244,8 +258,8 @@ class ChatThread(QThread):
             
             self.reply_ready.emit(reply_text)
         except Exception as e:
+            print(f"[DEBUG-CHAT] API Error: {e}")
             self.reply_ready.emit("呜呜，网络不通畅，我想不出来了...")
-            print("API Error:", e)
             if hasattr(e, 'response') and e.response is not None:
                 print("Response Body:", e.response.text)
 
@@ -275,6 +289,12 @@ class ChatThread(QThread):
     def send_message(self, text, is_idle=False):
         if hasattr(self, 'prompt'):
             delattr(self, 'prompt')
+        if self.isRunning():
+            print("[DEBUG] chat_thread busy, queueing message for retry")
+            self._pending_message = text
+            self._pending_is_idle = is_idle
+            return
+        self._pending_message = None
         self.message = text
         self.is_idle = is_idle
         self.start()
