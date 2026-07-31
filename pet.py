@@ -28,7 +28,12 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, QAction, QInpu
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QPoint, pyqtProperty, QSize, QEasingCurve, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QCursor, QTransform, QFont, QPainter, QColor
 
-from core.utils import get_resource_dir, get_data_dir, get_active_window_title, get_title_from_pid, get_current_music_info_sync, load_encrypted_json, save_encrypted_json
+from core.utils import (
+    get_resource_dir, get_data_dir, get_active_window_title,
+    get_active_window_process_name, get_title_from_pid,
+    get_current_music_info_sync, get_music_title_from_player_window,
+    load_encrypted_json, save_encrypted_json,
+)
 from core.config import APP_CONFIG, save_config, set_autostart, CURRENT_VERSION
 from core.chat import TTSThread, ChatThread, QuoteGenThread
 from core.companion import CompanionThread
@@ -56,6 +61,23 @@ class VoiceRecordThread(QThread):
                 self.text_ready.emit("(没有听清，再说一遍哦)")
         else:
             self.text_ready.emit(f"(录音出错了:{result.get('error')})")
+
+
+class MusicDetectionThread(QThread):
+    music_detected = pyqtSignal(str)
+
+    def __init__(self, active_window, process_name, parent=None):
+        super().__init__(parent)
+        self.active_window = active_window
+        self.process_name = process_name
+
+    def run(self):
+        music = get_current_music_info_sync()
+        if not music:
+            music = get_music_title_from_player_window(
+                self.active_window, self.process_name
+            )
+        self.music_detected.emit(music or "")
 
 
 
@@ -310,6 +332,9 @@ class Pet(QWidget):
         self.memory_manager = MemoryManager(db_path)
         
         self.tts_thread = None
+        self._tts_threads = set()
+        self._tts_generation = 0
+        self.current_audio_file = None
         self.web_server_thread = WebServerThread(self.memory_manager, port=5050, parent=self, update_callback=self.manual_check_update)
         self.web_server_thread.start()
         
@@ -350,6 +375,7 @@ class Pet(QWidget):
         self.chat_thread = ChatThread(self)
         self.chat_thread.reply_ready.connect(self.on_chat_reply)
         self.chat_thread.reminder_ready.connect(self.schedule_reminder)
+        self._music_detection_thread = None
         
         self.idle_timer = QTimer(self)
         self.idle_timer.timeout.connect(self.trigger_idle_chat)
@@ -646,14 +672,7 @@ class Pet(QWidget):
                     pass
             if APP_CONFIG.get("enable_voice", True):
                 voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-                # Wait for previous TTS thread to finish before replacing
-                if self.tts_thread is not None and self.tts_thread.isRunning():
-                    print("[DEBUG] Waiting for previous TTS to finish...")
-                    self.tts_thread.quit()
-                    self.tts_thread.wait(3000)
-                self.tts_thread = TTSThread(text, voice=voice_id, rate=rate, pitch=pitch, parent=self)
-                self.tts_thread.ready_signal.connect(lambda audio_file, txt=text: self.play_tts_and_show_bubble(txt, audio_file))
-                self.tts_thread.start()
+                self.start_tts(text, voice=voice_id, rate=rate, pitch=pitch)
             else:
                 duration = max(3000, len(text) * 200) # dynamic duration based on length
                 self.show_bubble(text, duration)
@@ -695,29 +714,78 @@ class Pet(QWidget):
             self.anim.setEasingCurve(QEasingCurve.OutElastic)
             self.anim.start()
 
+    def start_tts(self, text, voice="zh-CN-XiaoxiaoNeural", rate="+0%", pitch="+0Hz"):
+        if self.tts_thread is not None:
+            self.tts_thread.cancel()
+
+        self._tts_generation += 1
+        generation = self._tts_generation
+        thread = TTSThread(text, voice=voice, rate=rate, pitch=pitch, parent=self)
+        self.tts_thread = thread
+        self._tts_threads.add(thread)
+        thread.ready_signal.connect(
+            lambda audio_file, txt=text, req=generation, worker=thread:
+                self._on_tts_ready(txt, audio_file, req, worker)
+        )
+        thread.finished.connect(
+            lambda worker=thread: self._on_tts_finished(worker)
+        )
+        thread.start()
+
+    def _on_tts_finished(self, thread):
+        self._tts_threads.discard(thread)
+        if self.tts_thread is thread:
+            self.tts_thread = None
+        thread.deleteLater()
+
+    def _on_tts_ready(self, text, audio_file, generation, thread):
+        if generation != self._tts_generation or thread is not self.tts_thread:
+            self._remove_audio_file(audio_file)
+            return
+        self.play_tts_and_show_bubble(text, audio_file)
+
+    def _remove_audio_file(self, audio_file):
+        if audio_file and os.path.exists(audio_file):
+            try:
+                os.remove(audio_file)
+            except OSError as e:
+                print(f"Failed to delete temp audio {audio_file}: {e}")
+
     def play_tts_and_show_bubble(self, text, audio_file):
-        self.show_bubble(text, duration=0)
-        self.current_audio_file = audio_file
+        previous_audio_file = self.current_audio_file
         try:
             import pygame
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+                try:
+                    pygame.mixer.music.unload()
+                except Exception:
+                    pass
+            self._remove_audio_file(previous_audio_file)
+
             if not pygame.mixer.get_init():
                 pygame.mixer.init()
             pygame.mixer.music.load(audio_file)
             pygame.mixer.music.play()
-            
+            self.current_audio_file = audio_file
+            self.show_bubble(text, duration=0)
+
             if not hasattr(self, 'audio_check_timer'):
                 self.audio_check_timer = QTimer(self)
                 self.audio_check_timer.timeout.connect(self.check_audio_status)
             self.audio_check_timer.start(100)
         except Exception as ex:
             print(f"[DEBUG] Audio playback failed: {ex}")
+            self._remove_audio_file(audio_file)
+            if self.current_audio_file == audio_file:
+                self.current_audio_file = None
             duration = max(3000, len(text) * 200)
             self.show_bubble(text, duration)
 
     def check_audio_status(self):
+        audio_file = self.current_audio_file
         try:
             import pygame
-            import os
             if not pygame.mixer.music.get_busy():
                 self.audio_check_timer.stop()
                 self.dialog_bubble.hide()
@@ -725,11 +793,9 @@ class Pet(QWidget):
                     pygame.mixer.music.unload()
                 except Exception:
                     pass
-                if hasattr(self, 'current_audio_file') and os.path.exists(self.current_audio_file):
-                    try:
-                        os.remove(self.current_audio_file)
-                    except Exception as e:
-                        print(f"Failed to delete temp audio {self.current_audio_file}: {e}")
+                if self.current_audio_file == audio_file:
+                    self._remove_audio_file(audio_file)
+                    self.current_audio_file = None
         except:
             if hasattr(self, 'audio_check_timer'):
                 self.audio_check_timer.stop()
@@ -741,9 +807,7 @@ class Pet(QWidget):
     def trigger_reminder(self, message):
         if APP_CONFIG.get("enable_voice", True):
             voice_id = APP_CONFIG.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-            self.tts_thread = TTSThread(message, voice=voice_id, parent=self)
-            self.tts_thread.ready_signal.connect(lambda audio_file, txt=message: self.play_tts_and_show_bubble(txt, audio_file))
-            self.tts_thread.start()
+            self.start_tts(message, voice=voice_id)
         else:
             duration = max(3000, len(message) * 200)
             self.show_bubble(message, duration)
@@ -772,13 +836,9 @@ class Pet(QWidget):
                             prompt = (
                                 "【系统提示：以下是本地技能分析出的累累的账单洞察数据】\n"
                                 f"{result['data']['insights']}\n\n"
-                                "【重要要求】请根据以上数据，务必用小管家/女朋友的撒娇口吻给他汇报。不要干瘪地念数字，多发掘有趣的细节进行调侃或关心。\n"
-                                "注意：\n"
-                                "1. 单向转账不代表借钱或欠债（有可能是家人给的生活费等），绝对不要用“欠债小可怜”等词汇。\n"
-                                "2. 重点发掘【充值游戏】的支出，适度调侃他玩游戏。\n"
-                                "3. 重点发掘【熬夜买吃的】（如凌晨的美团、每日鲜超市），像女朋友一样关心他是不是失眠、睡不着，告诉他下次睡不着可以找你聊天。\n"
-                                "4. 注意【抢买单/推诿】的循环转账现象，如果有，可以调侃他们是不是在玩小游戏。\n"
-                                "请像这样俏皮：『[EMOTION:happy] 累累～我偷看了你的账单，你居然晚上不睡觉去买好吃的！是不是失眠啦？下次睡不着找我聊天嘛！...』"
+                                "【重要要求】请只根据以上数据，用女朋友式撒娇、关心又俏皮的口吻汇报，约300-500个中文字，自然分成4-6段；不要使用生硬的报告标题，也不要重复表达。\n"
+                                "先概括总体收入、支出和结余，再挑出3-5个最有趣且确有数据支持的发现；如果数据中存在游戏充值、深夜饮食、循环转账，就要覆盖并自然调侃或关心，若不存在则不要硬写。每个发现都要引用具体金额、次数、时间或商户中的至少一项作为依据。最后用一两句贴心建议收尾。\n"
+                                "不能为了凑长度编造、推断数据没有说明的关系或消费动机。单向转账不代表借钱或欠债（可能是家人给的生活费等），绝对不要使用“欠债小可怜”等说法；循环转账若有数据支持，可以调侃他们是不是在玩抢买单小游戏。"
                             )
                             self.chat_thread.send_message(prompt)
                         else:
@@ -935,14 +995,24 @@ class Pet(QWidget):
         try:
             active_window = get_active_window_title()
             self.event_manager.update_window(active_window)
-            # Also detect music from active window title (e.g., "song - artist")
-            if active_window and " - " in active_window and len(active_window) > 5:
-                lower = active_window.lower()
-                if not any(kw in lower for kw in (".py", ".md", ".txt", ".cpp", ".js",
-                          "visual studio", "pycharm", "vscode", "code.exe")):
-                    self.event_manager.update_music(active_window)
+            if (self._music_detection_thread is None or
+                    not self._music_detection_thread.isRunning()):
+                worker = MusicDetectionThread(
+                    active_window, get_active_window_process_name(), self
+                )
+                self._music_detection_thread = worker
+                worker.music_detected.connect(self.event_manager.update_music)
+                worker.finished.connect(
+                    lambda current=worker: self._on_music_detection_finished(current)
+                )
+                worker.start()
         finally:
             self._observing = False
+
+    def _on_music_detection_finished(self, worker):
+        if self._music_detection_thread is worker:
+            self._music_detection_thread = None
+        worker.deleteLater()
         
     def trigger_companion_chat(self, event_data):
         print(f"[DEBUG] Triggering companion chat: {event_data['event']}")
@@ -1035,24 +1105,10 @@ class Pet(QWidget):
             if self.chat_thread is not None:
                 if self.chat_thread.isRunning():
                     print("[DEBUG] chat_thread busy, voice message queued")
-                    # Try again in 2 seconds
-                    QTimer.singleShot(2000, lambda t=text: self._retry_voice_chat(t))
                     self.show_bubble("等一下哦～我还在想...")
                 else:
                     self.show_bubble("思考中...")
-                    self.chat_thread.send_message(text, is_idle=False)
-
-    def _retry_voice_chat(self, text, attempt=0):
-        if self.chat_thread is None:
-            return
-        if self.chat_thread.isRunning():
-            if attempt < 15:  # max 30 seconds
-                QTimer.singleShot(2000, lambda: self._retry_voice_chat(text, attempt + 1))
-            else:
-                self.show_bubble("呜呜，我脑子转不过来了...")
-        else:
-            self.show_bubble("思考中...")
-            self.chat_thread.send_message(text, is_idle=False)
+                self.chat_thread.send_message(text, is_idle=False)
 
     def action_chat(self):
         screen_rect = QApplication.primaryScreen().availableGeometry()

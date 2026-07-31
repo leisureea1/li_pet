@@ -3,6 +3,20 @@ import os
 import json
 import base64
 
+MUSIC_PLAYER_PROCESSES = frozenset({
+    "aimp.exe",
+    "applemusic.exe",
+    "cloudmusic.exe",
+    "foobar2000.exe",
+    "kugou.exe",
+    "kuwo.exe",
+    "musicbee.exe",
+    "qqmusic.exe",
+    "spotify.exe",
+    "vlc.exe",
+    "wmplayer.exe",
+})
+
 def get_resource_dir():
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
@@ -68,6 +82,27 @@ def get_active_window_title():
             return ""
     return ""
 
+def get_active_window_process_name():
+    if sys.platform != 'win32':
+        return ""
+    try:
+        import ctypes
+        import psutil
+        pid = ctypes.c_ulong()
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return psutil.Process(pid.value).name().lower() if pid.value else ""
+    except Exception:
+        return ""
+
+def get_music_title_from_player_window(window_title, process_name):
+    """Return a title fallback only for known player processes."""
+    title = (window_title or "").strip()
+    process = os.path.basename(process_name or "").lower()
+    if process not in MUSIC_PLAYER_PROCESSES or " - " not in title:
+        return ""
+    return title if len(title) > 5 else ""
+
 def get_title_from_pid(target_pid):
     if sys.platform != 'win32':
         return ""
@@ -99,7 +134,7 @@ def get_title_from_pid(target_pid):
         pass
     return ""
 
-def get_current_music_info_sync():
+def get_current_music_info_sync(timeout=2.0):
     if sys.platform != 'win32':
         return ""
     try:
@@ -136,9 +171,8 @@ def get_current_music_info_sync():
         import asyncio
         loop = asyncio.new_event_loop()
         try:
-            return loop.run_until_complete(fetch())
+            return loop.run_until_complete(asyncio.wait_for(fetch(), timeout=timeout))
         finally:
             loop.close()
-    except Exception as e:
-        print("Music fetch error:", e)
+    except Exception:
         return ""

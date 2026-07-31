@@ -74,10 +74,13 @@ class EventManager(QObject):
         if current_music and current_music.strip() in ["网易云音乐", "QQ音乐", "Spotify", "Spotify Free", "Spotify Premium", "酷狗音乐", "酷我音乐", "Apple Music"]:
             return
             
+        current_music = current_music or ""
         old = self.state["music"]["title"]
         if current_music != old:
-            self.state["music"]["title"] = current_music or ""
+            self.state["music"]["title"] = current_music
             self.state["music"]["start_time"] = now if current_music else 0
+            if not current_music:
+                self.state["music"]["last_notified"] = ""
             
         self._evaluate_events(now)
 

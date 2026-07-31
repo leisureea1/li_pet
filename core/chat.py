@@ -1,5 +1,8 @@
 import os
 import json
+import asyncio
+import threading
+from collections import deque
 import requests
 import psutil
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -11,31 +14,76 @@ from .router import SemanticRouter
 
 class TTSThread(QThread):
     ready_signal = pyqtSignal(str)
+
     def __init__(self, text, voice="zh-CN-XiaoxiaoNeural", rate="+0%", pitch="+0Hz", parent=None):
         super().__init__(parent)
         self.text = text
         self.voice = voice
         self.rate = rate
         self.pitch = pitch
-        
+        self._cancel_lock = threading.Lock()
+        self._cancelled = False
+        self._loop = None
+        self._task = None
+
+    def cancel(self):
+        with self._cancel_lock:
+            self._cancelled = True
+            loop = self._loop
+            task = self._task
+            if loop is not None and task is not None:
+                try:
+                    loop.call_soon_threadsafe(task.cancel)
+                except RuntimeError:
+                    pass
+
     def run(self):
+        out_file = None
+        loop = None
+        task = None
+        keep_file = False
         try:
             import edge_tts
             import tempfile
             import uuid
-            import asyncio
             temp_dir = tempfile.gettempdir()
             out_file = os.path.join(temp_dir, f"tongtong_voice_{uuid.uuid4().hex}.mp3")
-            
+
             communicate = edge_tts.Communicate(self.text, self.voice, rate=self.rate, pitch=self.pitch)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(communicate.save(out_file))
-            loop.close()
-            
-            self.ready_signal.emit(out_file)
+            with self._cancel_lock:
+                self._loop = loop
+                if self._cancelled:
+                    return
+                task = loop.create_task(communicate.save(out_file))
+                self._task = task
+            loop.run_until_complete(task)
+
+            with self._cancel_lock:
+                if not self._cancelled:
+                    keep_file = True
+                    self.ready_signal.emit(out_file)
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            print("TTS error:", e)
+            with self._cancel_lock:
+                cancelled = self._cancelled
+            if not cancelled:
+                print("TTS error:", e)
+        finally:
+            with self._cancel_lock:
+                if self._loop is loop:
+                    self._loop = None
+                if self._task is task:
+                    self._task = None
+            if loop is not None:
+                loop.close()
+            if out_file and not keep_file and os.path.exists(out_file):
+                try:
+                    os.remove(out_file)
+                except OSError as e:
+                    print(f"Failed to delete temp audio {out_file}: {e}")
 
 class ChatThread(QThread):
     reply_ready = pyqtSignal(str)
@@ -50,6 +98,9 @@ class ChatThread(QThread):
         self.skill_manager = SkillManager()
         self.pet_instance = parent
         self.router = SemanticRouter(get_data_dir())
+        self._message_queue = deque()
+        self._processing_message = False
+        self.finished.connect(self._start_next_message)
 
     def get_system_prompt(self):
         # ===== 背景信息 =====
@@ -105,6 +156,13 @@ class ChatThread(QThread):
                 + "\n\n"
             )
 
+        is_bill_insight = self.message.startswith("【系统提示：以下是本地技能分析出的累累的账单洞察数据】")
+        length_rule = (
+            "3. 账单洞察是本次回复的特殊例外，请结合数据写约300-500个中文字，自然分成4-6段。\n"
+            if is_bill_insight else
+            "3. 简短回复，不超过30个字。\n"
+        )
+
         return (
             f"{background_block}"
             f"{memory_block}"
@@ -114,7 +172,7 @@ class ChatThread(QThread):
             "回复规则（按优先级）：\n"
             "1. 必须先正面回答累累当前提出的问题，再附带情绪或撒娇。\n"
             "2. 上面的背景信息和长期记忆只用于理解语境，不要主动聊歌曲、软件窗口或CPU内存。\n"
-            "3. 简短回复，不超过30个字。\n"
+            f"{length_rule}"
             "4. 凡是涉及天气、气温、穿衣建议、搜索等实时信息，必须且只能调用工具技能获取数据，绝对不可自己编造！\n"
             "5. 如果想设定倒计时提醒累累做某事，在回复最后加一行标记：[REMINDER:秒数:提醒内容]\n"
             "例如：[REMINDER:600:该喝水啦！]\n"
@@ -287,17 +345,27 @@ class ChatThread(QThread):
                 )
 
     def send_message(self, text, is_idle=False):
+        request = (text, is_idle)
+        if self._processing_message or self.isRunning():
+            self._message_queue.append(request)
+            print(f"[DEBUG] chat_thread busy, queued message ({len(self._message_queue)} pending)")
+            return False
+
+        self._start_message(*request)
+        return True
+
+    def _start_message(self, text, is_idle):
         if hasattr(self, 'prompt'):
             delattr(self, 'prompt')
-        if self.isRunning():
-            print("[DEBUG] chat_thread busy, queueing message for retry")
-            self._pending_message = text
-            self._pending_is_idle = is_idle
-            return
-        self._pending_message = None
         self.message = text
         self.is_idle = is_idle
+        self._processing_message = True
         self.start()
+
+    def _start_next_message(self):
+        self._processing_message = False
+        if self._message_queue:
+            self._start_message(*self._message_queue.popleft())
 
 class QuoteGenThread(QThread):
     quotes_ready = pyqtSignal(list)
